@@ -19,13 +19,11 @@ pub fn draw(ui: &mut Ui, app: &mut IpicApp) {
                 .as_ref()
                 .map(|dir| dir.path == root_text)
                 .unwrap_or(false);
-            if selectable_row(ui, is_current, "Volume", &root_text) {
-                if let Ok(connection) = app.engine.catalog.reader() {
-                    if let Some(dir) = app.engine.catalog.dir_by_path(&connection, &root_text).ok().flatten() {
+            if selectable_row(ui, is_current, "Volume", &root_text)
+                && let Ok(connection) = app.engine.catalog.reader()
+                    && let Some(dir) = app.engine.catalog.dir_by_path(&connection, &root_text).ok().flatten() {
                         app.navigate_to(Some(dir));
                     }
-                }
-            }
         }
         ui.add_space(10.0);
         section_label(ui, "Filter by kind");
@@ -35,11 +33,10 @@ pub fn draw(ui: &mut Ui, app: &mut IpicApp) {
         egui::ScrollArea::vertical().show(ui, |ui| {
             for root in app.config.roots.clone() {
                 let root_text = root.to_string_lossy().into_owned();
-                if let Ok(connection) = app.engine.catalog.reader() {
-                    if let Some(dir) = app.engine.catalog.dir_by_path(&connection, &root_text).ok().flatten() {
+                if let Ok(connection) = app.engine.catalog.reader()
+                    && let Some(dir) = app.engine.catalog.dir_by_path(&connection, &root_text).ok().flatten() {
                         draw_tree_node(ui, app, &dir, 0);
                     }
-                }
             }
         });
     });
@@ -86,7 +83,9 @@ fn draw_kind_filters(ui: &mut Ui, app: &mut IpicApp) {
             } else {
                 app.browse.kind_filter = vec![kind];
             }
-            app.browse.active = true;
+            // Kind filters apply to browsing, so leave any search view.
+            app.active_query.clear();
+            app.results.hits.clear();
             app.browse.listing_stale = true;
         }
     }
@@ -144,13 +143,11 @@ fn draw_tree_node(ui: &mut Ui, app: &mut IpicApp, dir: &DirRow, depth: usize) {
             ui.label(RichText::new(dir.file_count.to_string()).small().color(theme::TEXT_DIM));
         }
     });
-    if app.expanded_tree_nodes.contains(&dir.id) {
-        if let Ok(connection) = app.engine.catalog.reader() {
-            if let Ok(children) = app.engine.catalog.tree_children(&connection, Some(dir.id)) {
+    if app.expanded_tree_nodes.contains(&dir.id)
+        && let Ok(connection) = app.engine.catalog.reader()
+            && let Ok(children) = app.engine.catalog.tree_children(&connection, Some(dir.id)) {
                 for child in children {
                     draw_tree_node(ui, app, &child, depth + 1);
                 }
             }
-        }
-    }
 }

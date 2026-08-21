@@ -67,11 +67,9 @@ pub fn semantic_search(
         if similarity <= 0.0 {
             break;
         }
-        match fetch_chunk(connection, chunk_rowid) {
-            Ok(Some((file_id, snippet))) => {
-                aggregate(&mut aggregations, file_id, snippet, 0, rank);
-            }
-            _ => {} // stale vector slot (chunk deleted): harmless
+        // Stale vector slots (chunk deleted) resolve to None: harmless.
+        if let Ok(Some((file_id, snippet))) = fetch_chunk(connection, chunk_rowid) {
+            aggregate(&mut aggregations, file_id, snippet, 0, rank);
         }
     }
 
@@ -196,18 +194,6 @@ fn build_match_expression(query: &str) -> String {
         .map(|word| format!("\"{}\"", word.replace('"', "\"\"")))
         .collect();
     words.join(" ")
-}
-
-/// Convenience for CLI: ranked list as "path — snippet".
-pub fn format_hits(outcome: &SearchOutcome) -> Vec<String> {
-    outcome
-        .hits
-        .iter()
-        .map(|hit| {
-            let snippet = if hit.snippet.is_empty() { String::new() } else { format!(" — {}", hit.snippet) };
-            format!("{}{}", hit.path, snippet)
-        })
-        .collect()
 }
 
 #[cfg(test)]

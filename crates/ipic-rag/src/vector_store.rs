@@ -50,7 +50,7 @@ impl VectorStore {
         let path = dir.join("vectors.bin");
         let free_path = dir.join("free-slots.bin");
         let expected = StoreHeader { dim: dim as u16, model_hash: model_hash(model_id), count: 0 };
-        let mut file = OpenOptions::new().read(true).write(true).create(true).open(&path)?;
+        let mut file = OpenOptions::new().read(true).write(true).create(true).truncate(false).open(&path)?;
         let length = file.metadata()?.len() as usize;
         let (header, compatible) = if length == 0 {
             let mut bytes = [0u8; HEADER_BYTES];
@@ -312,7 +312,7 @@ mod tests {
         assert_eq!(hits[0].0, 43, "self-match should rank first");
         // Free a middle slot and re-append: reuse must not corrupt rowid lookup.
         store.free(&[slots[10]]).unwrap();
-        let new_slots = store.append_batch(&[999], &vec![vectors[0].clone()]).unwrap();
+        let new_slots = store.append_batch(&[999], &[vectors[0].clone()]).unwrap();
         assert_eq!(new_slots[0], slots[10]);
         assert_eq!(store.top_k(&vectors[42], 200).iter().filter(|(r, _)| *r == 11).count(), 0);
         assert!(store.top_k(&vectors[0], 3).iter().any(|(r, _)| *r == 999));

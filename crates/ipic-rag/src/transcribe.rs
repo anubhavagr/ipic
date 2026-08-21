@@ -133,12 +133,11 @@ pub fn transcribe_with_state(state: &mut WhisperState, pcm: &[f32], threads: i32
         .map_err(|error| anyhow!("whisper decode failed: {error}"))?;
     let mut text = String::new();
     for segment_index in 0..state.full_n_segments() {
-        if let Some(segment) = state.get_segment(segment_index) {
-            if let Ok(segment_text) = segment.to_str() {
+        if let Some(segment) = state.get_segment(segment_index)
+            && let Ok(segment_text) = segment.to_str() {
                 text.push_str(segment_text);
                 text.push(' ');
             }
-        }
     }
     Ok(text.trim().to_string())
 }

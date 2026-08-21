@@ -74,7 +74,15 @@ impl Catalog {
         conn.execute("UPDATE files SET rag = 0 WHERE rag = 1", [])?;
         // Older catalogs: non-RAG kinds must not linger as phantom pending work.
         conn.execute(
-            "UPDATE files SET rag = 2 WHERE rag = 0 AND kind NOT IN ('text','pdf','audio','video')",
+            "UPDATE files SET rag = 2 WHERE rag = 0 AND kind NOT IN ('text','pdf','audio','video','image')",
+            [],
+        )?;
+        // Images became searchable after v1: re-queue pre-existing image rows
+        // that were marked Done before filename-context indexing existed.
+        conn.execute(
+            "UPDATE files SET rag = 0
+             WHERE kind = 'image' AND rag = 2
+               AND id NOT IN (SELECT DISTINCT file_id FROM chunks)",
             [],
         )?;
         Ok(Self { conn: conn.into(), path: path.to_path_buf() })
@@ -82,7 +90,7 @@ impl Catalog {
 
     /// Fresh read connection for use on any thread (WAL permits concurrent readers).
     pub fn reader(&self) -> CoreResult<Connection> {
-        Ok(open_connection(&self.path, true)?)
+        open_connection(&self.path, true)
     }
 
     pub fn path(&self) -> &Path {
@@ -260,13 +268,13 @@ impl Catalog {
             let mut statement = tx.prepare(
                 "INSERT INTO files(dir_id, name, kind, size, mtime, seen, rag)
                  VALUES (?1, ?2, ?3, ?4, ?5, 1,
-                         CASE WHEN ?3 IN ('text','pdf','audio','video') THEN 0 ELSE 2 END)
+                         CASE WHEN ?3 IN ('text','pdf','audio','video','image') THEN 0 ELSE 2 END)
                  ON CONFLICT(dir_id, name) DO UPDATE SET
                    size = excluded.size,
                    mtime = excluded.mtime,
                    seen = 1,
                    rag = CASE WHEN files.size != excluded.size OR files.mtime != excluded.mtime
-                              THEN CASE WHEN excluded.kind IN ('text','pdf','audio','video')
+                              THEN CASE WHEN excluded.kind IN ('text','pdf','audio','video','image')
                                         THEN 0 ELSE 2 END
                               ELSE files.rag END",
             )?;

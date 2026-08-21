@@ -48,19 +48,16 @@ pub fn spawn(
         let mut window_end = Instant::now();
         let _watcher = watcher; // keep alive for the thread's lifetime
         while !thread_stop.load(Ordering::Relaxed) {
-            match event_rx.recv_timeout(Duration::from_millis(120)) {
-                Ok(event) => {
-                    let removed = matches!(event.kind, EventKind::Remove(_));
-                    for path in event.paths {
-                        if removed {
-                            removals.insert(path);
-                        } else {
-                            pending.insert(path);
-                        }
+            if let Ok(event) = event_rx.recv_timeout(Duration::from_millis(120)) {
+                let removed = matches!(event.kind, EventKind::Remove(_));
+                for path in event.paths {
+                    if removed {
+                        removals.insert(path);
+                    } else {
+                        pending.insert(path);
                     }
-                    window_end = Instant::now() + Duration::from_millis(350);
                 }
-                Err(_) => {}
+                window_end = Instant::now() + Duration::from_millis(350);
             }
             if Instant::now() >= window_end && (!pending.is_empty() || !removals.is_empty()) {
                 for path in removals.drain() {
@@ -89,7 +86,7 @@ pub fn spawn(
 
 /// Inserts/updates one file row, creating any missing ancestor directories.
 fn upsert_single_file(catalog: &Catalog, path: &Path) -> CoreResult<()> {
-    let mut reader = catalog.reader()?;
+    let reader = catalog.reader()?;
     let parent = path.parent().unwrap_or(path);
     // Walk up to the deepest already-known ancestor, then insert the missing chain.
     let mut missing = Vec::new();
@@ -112,7 +109,7 @@ fn upsert_single_file(catalog: &Catalog, path: &Path) -> CoreResult<()> {
     let dir_id = match known_dir_id {
         Some(id) => id,
         None => catalog
-            .dir_by_path(&mut reader, &parent.to_string_lossy())?
+            .dir_by_path(&reader, &parent.to_string_lossy())?
             .map(|row| row.id)
             .ok_or_else(|| anyhow::anyhow!("parent directory missing: {}", parent.display()))?,
     };

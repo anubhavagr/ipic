@@ -32,7 +32,7 @@ pub fn walk_parallel(
     sink: Sender<WalkItem>,
 ) -> CoreResult<WalkStats> {
     let threads = threads.max(1);
-    let skip: HashSet<String> = skip_dir_names.iter().map(|s| s.clone()).collect();
+    let skip: HashSet<String> = skip_dir_names.iter().cloned().collect();
     // Deduplicate + canonicalize roots.
     let mut roots: Vec<PathBuf> = {
         let mut seen = HashSet::new();

@@ -29,7 +29,7 @@ impl AudioRecorder {
         let error_callback = |error| eprintln!("microphone error: {error}");
         let stream = match sample_format {
             cpal::SampleFormat::F32 => device.build_input_stream(
-                config.clone(),
+                config,
                 move |data: &[f32], _| push_frames(&collected, data, channels),
                 error_callback,
                 None,

@@ -2833,7 +2833,6 @@ dependencies = [
  "rayon",
  "rusqlite",
  "serde",
- "serde_json",
  "toml",
 ]
 

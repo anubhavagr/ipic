@@ -127,7 +127,9 @@ fn run_status() -> anyhow::Result<()> {
     let engine = Engine::launch(Config::load_or_create()?)?;
     // Give the boot events a moment to land, then report.
     std::thread::sleep(Duration::from_millis(600));
-    drain_events(&engine, false);
+    while let Ok(event) = engine.events.try_recv() {
+        print_event(&event);
+    }
     let status = engine.status();
     println!("files indexed      : {}", status.total_files);
     println!("rag pending        : {}", status.pending);
@@ -145,7 +147,9 @@ fn run_search(query: &str, limit: usize, spoken_pcm: Option<Vec<f32>>) -> anyhow
     let engine = Engine::launch(Config::load_or_create()?)?;
     // Let resume/scan settle briefly so fresh installs return something.
     std::thread::sleep(Duration::from_millis(300));
-    drain_events(&engine, false);
+    while let Ok(event) = engine.events.try_recv() {
+        print_event(&event);
+    }
     let outcome = match spoken_pcm {
         Some(audio_pcm) => engine.spoken_query_search(&audio_pcm, limit)?,
         None => engine.semantic_search(query, limit)?,
@@ -284,49 +288,4 @@ fn print_event(event: &EngineEvent) {
     }
 }
 
-/// Prints engine events; in verbose mode streams everything until idle.
-fn drain_events(engine: &std::sync::Arc<Engine>, verbose: bool) {
-    while let Ok(event) = engine.events.try_recv() {
-        match event {
-            EngineEvent::ScanStarted { roots } => {
-                if verbose {
-                    println!("scanning {} root(s)", roots.len());
-                }
-            }
-            EngineEvent::ScanProgress { files_seen, directories_seen, elapsed_seconds } => {
-                if verbose && files_seen % 100_000 == 0 {
-                    println!("  scanned {files_seen} files in {directories_seen} dirs ({elapsed_seconds:.1}s)");
-                }
-            }
-            EngineEvent::ScanFinished { files_seen, directories_seen, elapsed_seconds } => {
-                println!("scan: {files_seen} files, {directories_seen} directories in {elapsed_seconds:.1}s");
-            }
-            EngineEvent::EmbedderReady { model_id, neural } => {
-                println!("embedder ready: {model_id}{}", if neural { "" } else { " (fallback)" });
-            }
-            EngineEvent::ModelDownload { model, downloaded_bytes, total_bytes, finished } => {
-                if finished {
-                    println!("model ready: {model}");
-                } else if let Some(total) = total_bytes {
-                    println!("  downloading {model}: {:.1} / {:.1} MB", downloaded_bytes as f64 / 1e6, total as f64 / 1e6);
-                } else {
-                    println!("  downloading {model}: {:.1} MB", downloaded_bytes as f64 / 1e6);
-                }
-            }
-            EngineEvent::TranscriberReady { model } => println!("whisper ready: {model}"),
-            EngineEvent::TranscriberFailed { reason } => println!("whisper unavailable: {reason}"),
-            EngineEvent::IndexProgress { pending, done, failed, .. } => {
-                if verbose && pending % 500 == 0 && pending > 0 {
-                    println!("  indexing… {pending} pending, {done} done, {failed} failed");
-                }
-            }
-            EngineEvent::IndexingIdle => {
-                if verbose {
-                    println!("indexing idle");
-                }
-            }
-            EngineEvent::Notice(message) => println!("note: {message}"),
-            EngineEvent::CatalogChanged => {}
-        }
-    }
-}
+

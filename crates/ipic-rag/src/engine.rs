@@ -224,7 +224,7 @@ impl Engine {
     }
 
     pub fn transcribe_pcm(&self, audio_pcm: &[f32]) -> Result<String> {
-        Ok(self.ensure_transcriber()?.transcribe(audio_pcm)?)
+        self.ensure_transcriber()?.transcribe(audio_pcm)
     }
 
     /// Loads (downloading once if needed) the whisper model; guarded by a mutex
@@ -398,7 +398,7 @@ fn spawn_extraction_workers(engine: &Arc<Engine>, chunk_sender: Sender<(i64, Vec
                 if worker_engine.stop.load(Ordering::Relaxed) {
                     return;
                 }
-                let fast_lane_job = claim_job(&worker_engine, &[FileKind::Text, FileKind::Pdf]);
+                let fast_lane_job = claim_job(&worker_engine, &[FileKind::Text, FileKind::Pdf, FileKind::Image]);
                 let job = match fast_lane_job.or_else(|| claim_job(&worker_engine, &[FileKind::Audio, FileKind::Video])) {
                     Some(job) => job,
                     None => {
@@ -429,13 +429,12 @@ fn process_job(
     whisper_limit: u32,
 ) {
     // Re-indexing must first clear chunks from any earlier attempt.
-    if let Ok(freed_slots) = engine.catalog.delete_chunks_for_files(&[job.file_id]) {
-        if !freed_slots.is_empty() {
+    if let Ok(freed_slots) = engine.catalog.delete_chunks_for_files(&[job.file_id])
+        && !freed_slots.is_empty() {
             engine.vector_store.lock().unwrap().free(&freed_slots).ok();
         }
-    }
     let chunk_texts: Vec<String> = match job.kind {
-        FileKind::Text | FileKind::Pdf => {
+        FileKind::Text | FileKind::Pdf | FileKind::Image => {
             match extract::extract_text(&job.path, job.kind, engine.config.max_text_mb * 1024 * 1024) {
                 Ok(Some(text)) => extract::chunk_text(&text),
                 Ok(None) => Vec::new(),
@@ -484,7 +483,7 @@ fn transcribe_media(engine: &Arc<Engine>, job: &IndexingJob) -> Result<String> {
             .ok();
     }
     let transcriber = engine.ensure_transcriber()?;
-    Ok(transcriber.transcribe(&audio_pcm)?)
+    transcriber.transcribe(&audio_pcm)
 }
 
 /// Single embed writer: batches chunks, embeds with ONNX (multi-threaded),
@@ -584,7 +583,7 @@ fn spawn_progress_reporter(engine: &Arc<Engine>) {
             });
             let idle = pending + busy == 0 && engine.scan_finished.load(Ordering::Relaxed);
             if idle && !engine.idle_announced.swap(true, Ordering::AcqRel) {
-                let _ = engine.emit(EngineEvent::IndexingIdle);
+                engine.emit(EngineEvent::IndexingIdle);
             } else if pending + busy > 0 {
                 engine.idle_announced.store(false, Ordering::Release);
             }
@@ -603,7 +602,7 @@ fn spawn_transcriber_initializer(engine: &Arc<Engine>) {
         let engine = worker_engine;
         if let Err(error) = engine.ensure_transcriber() {
             *engine.transcriber_failure.lock().unwrap() = Some(error.to_string());
-            let _ = engine.emit(EngineEvent::TranscriberFailed { reason: error.to_string() });
+            engine.emit(EngineEvent::TranscriberFailed { reason: error.to_string() });
         }
     });
     if let Ok(handle) = handle {

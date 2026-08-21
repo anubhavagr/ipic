@@ -2,10 +2,10 @@
 
 mod actions;
 mod app;
-mod ask;
 mod browse;
 mod details;
 mod recorder;
+mod search_results;
 mod sidebar;
 mod theme;
 
@@ -46,6 +46,7 @@ impl eframe::App for IpicApp {
         }
         self.poll_search(context);
         self.expire_notices();
+        self.handle_shortcuts(context);
 
         // Refresh listing when stale, on navigation, or once per second
         // (index statuses advance in the background).
@@ -83,12 +84,12 @@ impl eframe::App for IpicApp {
         egui::CentralPanel::default()
             .frame(egui::Frame::new().fill(theme::SURFACE_BASE).inner_margin(egui::Margin::same(14)))
             .show(ui, |ui| {
-                if self.browse.active {
+                if self.active_query.is_empty() {
                     browse::draw(ui, self);
-                    draw_rename_dialog(ui, self);
                 } else {
-                    ask::draw(ui, self);
+                    search_results::draw(ui, self);
                 }
+                draw_rename_dialog(ui, self);
             });
 
         if self.show_settings {
@@ -121,9 +122,9 @@ fn draw_rename_dialog(ui: &mut egui::Ui, app: &mut IpicApp) {
         });
     if apply || cancel {
         let dialog = app.browse.rename_dialog.take().unwrap();
-        if apply {
-            if let Some((file, path)) = &app.selected_file {
-                if file.id == dialog.file_id {
+        if apply
+            && let Some((file, path)) = &app.selected_file
+                && file.id == dialog.file_id {
                     let new_path = actions::rename_file(std::path::Path::new(path), &dialog.edit_buffer);
                     if let Ok(new_path) = new_path {
                         // Update the catalog row so the UI reflects it instantly.
@@ -135,8 +136,6 @@ fn draw_rename_dialog(ui: &mut egui::Ui, app: &mut IpicApp) {
                         app.browse.listing_stale = true;
                     }
                 }
-            }
-        }
     }
 }
 
@@ -166,14 +165,12 @@ fn draw_settings_window(context: &Context, app: &mut IpicApp) {
                 if response.lost_focus() && ui.input(|input| input.key_pressed(egui::Key::Enter)) {
                     add = true;
                 }
-                if add && !new_root.is_empty() {
-                    if let Ok(canonical) = std::fs::canonicalize(&new_root) {
-                        if !roots.contains(&canonical) {
+                if add && !new_root.is_empty()
+                    && let Ok(canonical) = std::fs::canonicalize(&new_root)
+                        && !roots.contains(&canonical) {
                             roots.push(canonical);
                             roots_changed = true;
                         }
-                    }
-                }
             });
             if roots_changed {
                 app.config.roots = roots;

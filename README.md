@@ -21,16 +21,24 @@ audio recordings and videos — no cloud, no API calls, no telemetry.
 - **Standard file manager** — tree navigation, breadcrumbs, back/forward/up,
   metadata filtering (kind, name, size, recency), column sorting, virtualized
   table for huge directories, open/reveal/rename/trash.
-- **Multimodal RAG search** — hybrid retrieval fusing three lanes:
-  dense **semantic** vectors (bge-small-en-v1.5 via ONNX), **BM25 keyword**
-  (SQLite FTS5), and **filename** match, merged with weighted reciprocal rank
-  fusion. Typical latency: single-digit milliseconds.
+- **Unified multimodal search** — one query box, no mode picking, no per-type
+  flags: text files, PDFs, audio, video and images are ranked together.
+  Hybrid retrieval fuses three lanes — dense **semantic** vectors
+  (bge-small-en-v1.5 via ONNX), **BM25 keyword** (SQLite FTS5), and
+  **filename** match — merged with weighted reciprocal rank fusion.
+  Speech inside audio/video is transcribed at index time; images are indexed
+  by filename + folder context. Typical latency: single-digit milliseconds.
 - **Spoken queries** — record from the microphone; whisper (base.en, q5) transcribes
   locally and the transcript drives the same hybrid search.
 - **Audio/video understanding** — speech in audio and video files is transcribed
   at index time (ffmpeg decode → whisper), so lectures, podcasts and talks become
   full-text + semantically searchable.
-- **Everything else** (images, archives, binaries…) is catalogued with metadata,
+- **File-manager essentials** — open (double-click, Enter, buttons, context
+  menu), rename, duplicate, move to trash, new folder, reveal in Finder,
+  copy path, sorting by name/kind/size/modified/duration, kind/size/recency
+  filters, back/forward/up navigation, live keyboard navigation (↑/↓/Enter,
+  ⌘F search, ⌘⌫ trash, ⌘↑ reveal, Esc clears search).
+- **Everything else** (archives, binaries…) is catalogued with metadata,
   filterable and sortable — just not RAG-indexed.
 
 ## Design goals (and how they're met)

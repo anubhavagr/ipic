@@ -62,7 +62,7 @@ fn index_corpus(catalog: &Catalog, root: &std::path::Path, vector_store: &mut Ve
                         let rowids = catalog.insert_chunks(&references).unwrap();
                         let embedder = HashingEmbedder;
                         let embedded: Vec<Vec<f32>> =
-                            chunks.iter().map(|chunk| embedder.embed_batch(&[chunk.clone()]).unwrap()[0].clone()).collect();
+                            chunks.iter().map(|chunk| embedder.embed_batch(std::slice::from_ref(chunk)).unwrap()[0].clone()).collect();
                         let slots = vector_store.append_batch(&rowids, &embedded).unwrap();
                         let assignments: Vec<(i64, i64)> =
                             rowids.iter().cloned().zip(slots.iter().cloned()).collect();

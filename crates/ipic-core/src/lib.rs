@@ -1,7 +1,6 @@
 //! ipic-core: parallel filesystem scanning, SQLite catalog, change watching.
 
 pub mod catalog;
-pub mod probe;
 pub mod util;
 pub mod walker;
 pub mod watcher;
@@ -12,7 +11,8 @@ use std::path::{Path, PathBuf};
 
 pub type CoreResult<T> = anyhow::Result<T>;
 
-/// File categories. `Text|Pdf|Audio|Video` are RAG-indexable; the rest are catalog-only.
+/// File categories. Text/Pdf/Audio/Video/Image are RAG-indexable (images via
+/// filename + folder context); the rest are catalog-only.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum FileKind {
     Text,
@@ -26,7 +26,7 @@ pub enum FileKind {
 impl FileKind {
     pub const ALL: [FileKind; 6] = [Self::Text, Self::Pdf, Self::Audio, Self::Video, Self::Image, Self::Other];
     pub fn is_rag(self) -> bool {
-        matches!(self, Self::Text | Self::Pdf | Self::Audio | Self::Video)
+        matches!(self, Self::Text | Self::Pdf | Self::Audio | Self::Video | Self::Image)
     }
     pub fn label(self) -> &'static str {
         match self {

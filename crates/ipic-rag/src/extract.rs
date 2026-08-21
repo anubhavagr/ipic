@@ -2,7 +2,7 @@
 //! (ffmpeg pipe when available — covers every container — else pure-Rust symphonia).
 
 use anyhow::{anyhow, Context, Result};
-use ipic_core::{FileKind, probe};
+use ipic_core::FileKind;
 use std::io::Read;
 use std::path::Path;
 use std::process::{Command, Stdio};
@@ -31,6 +31,28 @@ pub fn extract_text(path: &Path, kind: FileKind, max_bytes: usize) -> Result<Opt
                 Err(_) => return Err(anyhow!("pdf extraction panicked (malformed pdf)")),
             }
         }
+        FileKind::Image => {
+            // No vision model on-device (yet): images are searchable through
+            // their filename and folder context, e.g. "vacation 2024 beach sunset".
+            let segments: Vec<String> = path
+                .components()
+                .filter_map(|component| {
+                    component.as_os_str().to_str().map(|text| text.to_string())
+                })
+                .flat_map(|text| {
+                    text.split(|character: char| !character.is_alphanumeric())
+                        .filter(|word| word.len() > 2 && !word.eq_ignore_ascii_case("jpg")
+                            && !word.eq_ignore_ascii_case("jpeg") && !word.eq_ignore_ascii_case("png")
+                            && !word.eq_ignore_ascii_case("heic") && !word.eq_ignore_ascii_case("webp")
+                            && !word.eq_ignore_ascii_case("tiff") && !word.eq_ignore_ascii_case("gif")
+                            && !word.eq_ignore_ascii_case("avif"))
+                        .map(|word| word.to_lowercase())
+                        .collect::<Vec<_>>()
+                })
+                .collect();
+            let context = segments.join(" ");
+            return Ok((!context.is_empty()).then_some(context));
+        }
         _ => return Ok(None),
     };
     let trimmed = text.trim();
@@ -56,9 +78,18 @@ pub fn chunk_text(text: &str) -> Vec<String> {
 
 pub const SAMPLE_RATE: usize = 16_000;
 
+/// True when ffmpeg is usable on this machine (broadest container coverage).
+pub fn ffmpeg_available() -> bool {
+    std::process::Command::new("ffprobe")
+        .arg("-version")
+        .output()
+        .map(|output| output.status.success())
+        .unwrap_or(false)
+}
+
 /// Decodes any audio/video file to mono 16 kHz f32 PCM for whisper.
 pub fn decode_speech_pcm(path: &Path) -> Result<Vec<f32>> {
-    if probe::ffmpeg_available() {
+    if ffmpeg_available() {
         return decode_with_ffmpeg(path);
     }
     decode_with_symphonia(path).with_context(|| format!("decoding {} without ffmpeg", path.display()))
