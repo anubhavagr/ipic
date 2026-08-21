@@ -24,7 +24,7 @@ pub fn draw(ui: &mut Ui, app: &mut IpicApp) {
                 app.dispatch_open(std::path::Path::new(&path));
             }
             if ui.button("Reveal").clicked() {
-                crate::actions::reveal_in_file_manager(std::path::Path::new(&path));
+                app.dispatch_reveal(std::path::Path::new(&path));
             }
             if ui.button("Copy path").clicked() {
                 crate::actions::copy_path_to_clipboard(&path);

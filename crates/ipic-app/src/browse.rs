@@ -370,7 +370,7 @@ fn draw_table(ui: &mut Ui, app: &mut IpicApp) {
                                 ui.close();
                             }
                             if ui.button("Reveal in Finder").clicked() {
-                                crate::actions::reveal_in_file_manager(Path::new(&directory.path));
+                                app.dispatch_reveal(Path::new(&directory.path));
                                 ui.close();
                             }
                         });
@@ -538,7 +538,7 @@ fn file_context_menu(ui: &mut Ui, app: &mut IpicApp, file: &FileRow, path: &str)
         ui.close();
     }
     if ui.button("Reveal in Finder").clicked() {
-        crate::actions::reveal_in_file_manager(Path::new(path));
+        app.dispatch_reveal(Path::new(path));
         ui.close();
     }
     if ui.button("Copy path").clicked() {

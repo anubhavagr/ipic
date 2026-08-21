@@ -52,6 +52,7 @@ impl Drop for TestWorld {
 fn build_harness(
     world: &TestWorld,
     opened: Arc<Mutex<Vec<String>>>,
+    revealed: Arc<Mutex<Vec<String>>>,
 ) -> (Harness<'static, IpicApp>, Arc<Engine>) {
     let config = world.config();
     let engine = Engine::launch_with_data_dir(config.clone(), world.data_directory.clone()).unwrap();
@@ -59,6 +60,12 @@ fn build_harness(
     let capture = Arc::clone(&opened);
     application.open_handler = Some(Arc::new(move |path| {
         capture.lock().unwrap().push(path.display().to_string());
+    }));
+    // Reveal must route through the seam: spawning `open -R` here would pop
+    // real Finder windows on the machine running the tests.
+    let reveal_capture = Arc::clone(&revealed);
+    application.reveal_handler = Some(Arc::new(move |path| {
+        reveal_capture.lock().unwrap().push(path.display().to_string());
     }));
     // A small simulated clock keeps click sequences inside egui's 0.3 s
     // double-click window (kittest's default step is a quarter second).
@@ -201,7 +208,8 @@ fn open_rename_dialog(harness: &mut Harness<'_, IpicApp>, file_name: &str) {
 fn context_menu_open_reveal_copy_path_act_without_panic() {
     let world = TestWorld::create("menuops");
     let opened = Arc::new(Mutex::new(Vec::new()));
-    let (mut harness, engine) = build_harness(&world, Arc::clone(&opened));
+    let revealed = Arc::new(Mutex::new(Vec::new()));
+    let (mut harness, engine) = build_harness(&world, Arc::clone(&opened), Arc::clone(&revealed));
     wait_until_indexed(&engine);
     harness.run();
 
@@ -213,10 +221,15 @@ fn context_menu_open_reveal_copy_path_act_without_panic() {
     click_menu_entry(&mut harness, "Copy path");
     wait_for_label_contains(&mut harness, "path copied");
 
-    // Reveal spawns the OS file manager — must not take the UI down.
+    // Reveal routes through the injectable handler — no Finder windows.
     click_label(&mut harness, "todo.txt", egui::PointerButton::Secondary);
     click_menu_entry(&mut harness, "Reveal in Finder");
     harness.run();
+    let revealed_paths = revealed.lock().unwrap().clone();
+    assert!(
+        revealed_paths.iter().any(|path| path.ends_with("todo.txt")),
+        "Reveal must dispatch through the reveal handler, got {revealed_paths:?}"
+    );
 
     // Open dispatches through the injectable open handler.
     click_label(&mut harness, "todo.txt", egui::PointerButton::Secondary);
@@ -231,7 +244,7 @@ fn context_menu_open_reveal_copy_path_act_without_panic() {
 #[test]
 fn duplicate_creates_real_copy_on_disk_and_refreshes_listing() {
     let world = TestWorld::create("dup");
-    let (mut harness, engine) = build_harness(&world, Arc::new(Mutex::new(Vec::new())));
+    let (mut harness, engine) = build_harness(&world, Arc::new(Mutex::new(Vec::new())), Arc::new(Mutex::new(Vec::new())));
     wait_until_indexed(&engine);
     harness.run();
 
@@ -254,7 +267,8 @@ fn duplicate_creates_real_copy_on_disk_and_refreshes_listing() {
 fn rename_dialog_enter_renames_file_without_leaking_open() {
     let world = TestWorld::create("rename-enter");
     let opened = Arc::new(Mutex::new(Vec::new()));
-    let (mut harness, engine) = build_harness(&world, Arc::clone(&opened));
+    let revealed = Arc::new(Mutex::new(Vec::new()));
+    let (mut harness, engine) = build_harness(&world, Arc::clone(&opened), Arc::clone(&revealed));
     wait_until_indexed(&engine);
     harness.run();
 
@@ -284,7 +298,7 @@ fn rename_dialog_enter_renames_file_without_leaking_open() {
 #[test]
 fn rename_dialog_rename_button_renames_file() {
     let world = TestWorld::create("rename-button");
-    let (mut harness, engine) = build_harness(&world, Arc::new(Mutex::new(Vec::new())));
+    let (mut harness, engine) = build_harness(&world, Arc::new(Mutex::new(Vec::new())), Arc::new(Mutex::new(Vec::new())));
     wait_until_indexed(&engine);
     harness.run();
 
@@ -306,7 +320,7 @@ fn rename_dialog_rename_button_renames_file() {
 #[test]
 fn rename_dialog_cancel_and_escape_leave_file_untouched() {
     let world = TestWorld::create("rename-cancel");
-    let (mut harness, engine) = build_harness(&world, Arc::new(Mutex::new(Vec::new())));
+    let (mut harness, engine) = build_harness(&world, Arc::new(Mutex::new(Vec::new())), Arc::new(Mutex::new(Vec::new())));
     wait_until_indexed(&engine);
     harness.run();
     let original_path = world.corpus.join("documents/mission-briefing.md");
@@ -334,7 +348,7 @@ fn rename_dialog_cancel_and_escape_leave_file_untouched() {
 #[test]
 fn rename_dialog_rejects_invalid_names_without_damage() {
     let world = TestWorld::create("rename-invalid");
-    let (mut harness, engine) = build_harness(&world, Arc::new(Mutex::new(Vec::new())));
+    let (mut harness, engine) = build_harness(&world, Arc::new(Mutex::new(Vec::new())), Arc::new(Mutex::new(Vec::new())));
     wait_until_indexed(&engine);
     harness.run();
     let original_path = world.corpus.join("documents/mission-briefing.md");
@@ -371,7 +385,7 @@ fn rename_dialog_rejects_invalid_names_without_damage() {
 #[test]
 fn move_to_trash_removes_file_from_disk_and_listing() {
     let world = TestWorld::create("trash");
-    let (mut harness, engine) = build_harness(&world, Arc::new(Mutex::new(Vec::new())));
+    let (mut harness, engine) = build_harness(&world, Arc::new(Mutex::new(Vec::new())), Arc::new(Mutex::new(Vec::new())));
     wait_until_indexed(&engine);
     harness.run();
     let target = world.corpus.join("todo.txt");
@@ -406,7 +420,7 @@ fn enter_corpus_root(harness: &mut Harness<'_, IpicApp>, corpus: &std::path::Pat
 #[test]
 fn new_folder_enter_creates_directory_on_disk() {
     let world = TestWorld::create("folder-create");
-    let (mut harness, engine) = build_harness(&world, Arc::new(Mutex::new(Vec::new())));
+    let (mut harness, engine) = build_harness(&world, Arc::new(Mutex::new(Vec::new())), Arc::new(Mutex::new(Vec::new())));
     wait_until_indexed(&engine);
     harness.run();
     enter_corpus_root(&mut harness, &world.corpus);
@@ -431,7 +445,7 @@ fn new_folder_enter_creates_directory_on_disk() {
 #[test]
 fn new_folder_create_button_creates_directory() {
     let world = TestWorld::create("folder-button");
-    let (mut harness, engine) = build_harness(&world, Arc::new(Mutex::new(Vec::new())));
+    let (mut harness, engine) = build_harness(&world, Arc::new(Mutex::new(Vec::new())), Arc::new(Mutex::new(Vec::new())));
     wait_until_indexed(&engine);
     harness.run();
     enter_corpus_root(&mut harness, &world.corpus);
@@ -451,7 +465,7 @@ fn new_folder_create_button_creates_directory() {
 #[test]
 fn new_folder_escape_and_close_button_cancel_without_creating() {
     let world = TestWorld::create("folder-cancel");
-    let (mut harness, engine) = build_harness(&world, Arc::new(Mutex::new(Vec::new())));
+    let (mut harness, engine) = build_harness(&world, Arc::new(Mutex::new(Vec::new())), Arc::new(Mutex::new(Vec::new())));
     wait_until_indexed(&engine);
     harness.run();
     enter_corpus_root(&mut harness, &world.corpus);
@@ -487,7 +501,7 @@ fn new_folder_escape_and_close_button_cancel_without_creating() {
 #[test]
 fn new_folder_in_library_view_shows_notice_instead_of_panicking() {
     let world = TestWorld::create("folder-library");
-    let (mut harness, engine) = build_harness(&world, Arc::new(Mutex::new(Vec::new())));
+    let (mut harness, engine) = build_harness(&world, Arc::new(Mutex::new(Vec::new())), Arc::new(Mutex::new(Vec::new())));
     wait_until_indexed(&engine);
     harness.run();
     // Library view (no current folder) is the default after launch.
@@ -514,7 +528,8 @@ fn new_folder_in_library_view_shows_notice_instead_of_panicking() {
 fn details_panel_open_dispatches_through_open_handler_and_shows_text_preview() {
     let world = TestWorld::create("details");
     let opened = Arc::new(Mutex::new(Vec::new()));
-    let (mut harness, engine) = build_harness(&world, Arc::clone(&opened));
+    let revealed = Arc::new(Mutex::new(Vec::new()));
+    let (mut harness, engine) = build_harness(&world, Arc::clone(&opened), Arc::clone(&revealed));
     wait_until_indexed(&engine);
     harness.run();
 

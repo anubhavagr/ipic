@@ -116,7 +116,7 @@ fn draw_result_card(ui: &mut Ui, app: &mut IpicApp, position: usize, hit: &Searc
                         app.dispatch_open(std::path::Path::new(&hit.path));
                     }
                     if ui.small_button("Reveal").clicked() {
-                        crate::actions::reveal_in_file_manager(std::path::Path::new(&hit.path));
+                        app.dispatch_reveal(std::path::Path::new(&hit.path));
                     }
                 });
             });
@@ -150,7 +150,7 @@ fn result_context_menu(ui: &mut Ui, app: &mut IpicApp, hit: &SearchHit) {
         ui.close();
     }
     if ui.button("Reveal in file manager").clicked() {
-        crate::actions::reveal_in_file_manager(std::path::Path::new(&hit.path));
+        app.dispatch_reveal(std::path::Path::new(&hit.path));
         ui.close();
     }
     if ui.button("Copy path").clicked() {

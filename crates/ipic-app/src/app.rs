@@ -39,6 +39,9 @@ pub struct IpicApp {
     pub settings_new_root: String,
     /// Injection point for tests: captures open requests instead of spawning.
     pub open_handler: Option<OpenHandler>,
+    /// Injection point for tests: captures reveal requests instead of
+    /// spawning `open -R` (which would pop real Finder windows).
+    pub reveal_handler: Option<OpenHandler>,
     /// Whether the search box currently holds keyboard focus.
     pub search_box_has_focus: bool,
     /// Active unified-search query (empty = browsing mode).
@@ -80,6 +83,7 @@ impl IpicApp {
             search_edit: String::new(),
             settings_new_root: String::new(),
             open_handler: None,
+            reveal_handler: None,
             search_box_has_focus: false,
             active_query: String::new(),
         }
@@ -259,6 +263,14 @@ impl IpicApp {
         }
     }
 
+    /// Reveals a file through the injectable handler (tests) or the OS.
+    pub fn dispatch_reveal(&self, path: &std::path::Path) {
+        match &self.reveal_handler {
+            Some(handler) => handler(path),
+            None => crate::actions::reveal_in_file_manager(path),
+        }
+    }
+
     pub fn open_selected(&mut self) {
         if let Some(path) = self.selected_path() {
             self.dispatch_open(std::path::Path::new(&path));
@@ -312,7 +324,7 @@ impl IpicApp {
         }
         if reveal
             && let Some(path) = self.selected_path() {
-                crate::actions::reveal_in_file_manager(std::path::Path::new(&path));
+                self.dispatch_reveal(std::path::Path::new(&path));
             }
         if clear_search {
             self.active_query.clear();
