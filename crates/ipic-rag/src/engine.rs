@@ -59,6 +59,10 @@ struct IndexingJob {
 pub struct Engine {
     pub catalog: Arc<Catalog>,
     pub config: Config,
+    /// Data directory this engine was launched with (config saves scoped to it).
+    pub data_directory: PathBuf,
+    /// Live scan roots, swappable from the GUI settings without a restart.
+    roots: Arc<std::sync::RwLock<Vec<PathBuf>>>,
     pub events: Receiver<EngineEvent>,
     event_sender: Sender<EngineEvent>,
     vector_store: Arc<Mutex<VectorStore>>,
@@ -134,6 +138,8 @@ impl Engine {
         let engine = Arc::new(Engine {
             catalog: Arc::clone(&catalog),
             config: config.clone(),
+            data_directory: data_directory.clone(),
+            roots: Arc::new(std::sync::RwLock::new(config.roots.clone())),
             events,
             event_sender: event_sender.clone(),
             vector_store: Arc::new(Mutex::new(vector_store)),
@@ -182,7 +188,7 @@ impl Engine {
         let catalog = Arc::clone(&self.catalog);
         let vector_store = Arc::clone(&self.vector_store);
         let event_sender = self.event_sender.clone();
-        let roots = self.config.roots.clone();
+        let roots = self.current_roots();
         let skip_names = self.config.skip_dir_names.clone();
         let stop = Arc::clone(&self.stop);
         let core_count = self.core_count();
@@ -293,6 +299,23 @@ impl Engine {
 
     pub fn stop_background_work(&self) {
         self.stop.store(true, Ordering::Release);
+    }
+
+    /// Current scan roots (settings may swap them at runtime).
+    pub fn current_roots(&self) -> Vec<PathBuf> {
+        self.roots.read().unwrap().clone()
+    }
+
+    /// Swaps scan roots; the next rescan covers the new set.
+    pub fn replace_roots(&self, roots: Vec<PathBuf>) {
+        *self.roots.write().unwrap() = roots;
+    }
+
+    /// Persists a configuration into this engine's data directory.
+    pub fn persist_config(&self, config: &Config) {
+        if let Err(error) = config.save_to_directory(&self.data_directory) {
+            self.emit(EngineEvent::Notice(format!("config save failed: {error}")));
+        }
     }
 
     /// Frees vector slots after external deletions (GUI trash action).

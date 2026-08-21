@@ -204,6 +204,11 @@ impl Config {
         data_dir().join("config.toml")
     }
 
+    /// Config lives beside the data it configures (tests use temp data dirs).
+    pub fn path_in(directory: &Path) -> PathBuf {
+        directory.join("config.toml")
+    }
+
     /// Loads config from disk, creating the default on first run.
     pub fn load_or_create() -> CoreResult<Self> {
         let path = Self::path();
@@ -217,7 +222,12 @@ impl Config {
     }
 
     pub fn save(&self) -> CoreResult<()> {
-        std::fs::write(Self::path(), toml::to_string_pretty(self)?)?;
+        self.save_to_directory(&data_dir())
+    }
+
+    pub fn save_to_directory(&self, directory: &Path) -> CoreResult<()> {
+        std::fs::create_dir_all(directory)?;
+        std::fs::write(Self::path_in(directory), toml::to_string_pretty(self)?)?;
         Ok(())
     }
 }

@@ -201,8 +201,9 @@ fn draw_settings_window(context: &Context, app: &mut IpicApp) {
                         }
             });
             if roots_changed {
-                app.config.roots = roots;
-                let _ = app.config.save();
+                app.config.roots = roots.clone();
+                app.engine.replace_roots(roots);
+                app.engine.persist_config(&app.config);
                 app.push_notice("roots updated — rescan starts now".into());
                 app.engine.spawn_scan();
             }
@@ -224,7 +225,7 @@ fn draw_settings_window(context: &Context, app: &mut IpicApp) {
                 ui.add(egui::Slider::new(&mut workers, 1..=8));
                 if workers != app.config.whisper_workers {
                     app.config.whisper_workers = workers;
-                    let _ = app.config.save();
+                    app.engine.persist_config(&app.config);
                 }
             });
             ui.add_space(10.0);
