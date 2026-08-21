@@ -16,7 +16,10 @@ pub enum ListingEntry {
 }
 
 pub struct RenameDialog {
-    pub file_id: i64,
+    /// File the dialog acts on. Carried by the dialog itself: the row may be
+    /// right-clicked without being the current selection.
+    pub file: FileRow,
+    pub path: String,
     pub edit_buffer: String,
 }
 
@@ -127,7 +130,7 @@ fn draw_empty_state(ui: &mut Ui, app: &mut IpicApp) {
     ui.add_space(ui.available_height() * 0.3);
     ui.vertical_centered(|ui| {
         ui.label(RichText::new("nothing here").size(18.0).color(theme::TEXT_DIM));
-        let hint = if app.browse.name_filter_active.is_empty() {
+        let hint = if app.browse.active_filter().is_empty() {
             "this folder is empty — add files or create a new folder above"
         } else {
             "no files match the current filters"
@@ -137,6 +140,8 @@ fn draw_empty_state(ui: &mut Ui, app: &mut IpicApp) {
 }
 
 fn draw_toolbar(ui: &mut Ui, app: &mut IpicApp) {
+    // Two rows: on one row the right-aligned sort controls silently overlapped
+    // the kind chips once the row overflowed, stealing each other's clicks.
     ui.horizontal(|ui| {
         match &app.browse.new_folder_buffer {
             None => {
@@ -148,24 +153,51 @@ fn draw_toolbar(ui: &mut Ui, app: &mut IpicApp) {
                 let mut name = buffered.clone();
                 let edit = egui::TextEdit::singleline(&mut name).desired_width(160.0).hint_text("folder name");
                 let response = ui.add(edit);
-                response.request_focus();
+                // Grab focus when the editor appears, but never steal it back
+                // after Enter/Escape surrender it or the user clicks elsewhere.
+                if !response.has_focus() && !response.lost_focus() {
+                    response.request_focus();
+                }
                 let mut confirm = ui.button("Create").clicked();
-                if response.has_focus() && ui.input(|input| input.key_pressed(egui::Key::Enter)) {
+                // Enter/Escape surrender focus mid-frame, so lost_focus counts
+                // as "this edit had the keyboard" for that key press.
+                if (response.has_focus() || response.lost_focus())
+                    && ui.input(|input| input.key_pressed(egui::Key::Enter))
+                {
                     confirm = true;
                 }
-                let cancel = ui.button("✕").clicked()
-                    || (response.has_focus() && ui.input(|input| input.key_pressed(egui::Key::Escape)));
-                if confirm && !name.trim().is_empty() {
+                // Enter/Escape may surrender focus mid-frame, so both the
+                // focused and just-unfocused states count as "had the keyboard".
+                let escape_pressed = ui.input(|input| input.key_pressed(egui::Key::Escape));
+                let close_button_response = ui.button("✕");
+                eprintln!("DBG pointer={:?} down={} close_hover={}", ui.input(|input| input.pointer.latest_pos()), ui.input(|input| input.pointer.any_down()), close_button_response.hovered());
+                let cancel = close_button_response.clicked()
+                    || escape_pressed && (response.has_focus() || response.lost_focus());
+                eprintln!("DBG cancel={cancel} confirm={confirm}");
+                if cancel {
+                    app.browse.new_folder_buffer = None;
+                } else if confirm {
+                    let name = name.trim().to_string();
                     match &app.current_directory {
                         Some(directory) => {
-                            if crate::actions::create_folder(Path::new(&directory.path), &name).is_ok() {
-                                app.browse.listing_stale = true;
-                                app.push_notice(format!("created “{name}”"));
+                            match crate::actions::create_folder(Path::new(&directory.path), &name) {
+                                Ok(created) => {
+                                    app.browse.new_folder_buffer = None;
+                                    app.browse.listing_stale = true;
+                                    // A rescan is what registers the new folder
+                                    // in the catalog (and thus the listing).
+                                    app.engine.spawn_scan();
+                                    app.push_notice(format!("created “{}”", created.file_name().map(|part| part.to_string_lossy().into_owned()).unwrap_or(name)));
+                                }
+                                Err(error) => app.push_notice(format!("folder failed: {error}")),
                             }
                         }
-                        None => app.push_notice("open a folder first, then create inside it".into()),
+                        None => {
+                            app.browse.new_folder_buffer = None;
+                            app.push_notice("open a folder first, then create inside it".into());
+                        }
                     }
-                } else if !confirm && !cancel {
+                } else {
                     app.browse.new_folder_buffer = Some(name);
                 }
             }
@@ -193,6 +225,24 @@ fn draw_toolbar(ui: &mut Ui, app: &mut IpicApp) {
         }
         if !app.browse.kind_filter.is_empty() && ui.button("clear").clicked() {
             app.browse.kind_filter.clear();
+            app.browse.listing_stale = true;
+        }
+    });
+    ui.horizontal(|ui| {
+        if ui
+            .button(if app.browse.large_files_only { "Large ✓" } else { "Large" })
+            .on_hover_text("larger than 100 MB")
+            .clicked()
+        {
+            app.browse.large_files_only = !app.browse.large_files_only;
+            app.browse.listing_stale = true;
+        }
+        if ui
+            .button(if app.browse.recent_files_only { "Recent ✓" } else { "Recent" })
+            .on_hover_text("modified in the last 30 days")
+            .clicked()
+        {
+            app.browse.recent_files_only = !app.browse.recent_files_only;
             app.browse.listing_stale = true;
         }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -224,22 +274,6 @@ fn draw_toolbar(ui: &mut Ui, app: &mut IpicApp) {
                         }
                     }
                 });
-            if ui
-                .button(if app.browse.large_files_only { "Large ✓" } else { "Large" })
-                .on_hover_text("larger than 100 MB")
-                .clicked()
-            {
-                app.browse.large_files_only = !app.browse.large_files_only;
-                app.browse.listing_stale = true;
-            }
-            if ui
-                .button(if app.browse.recent_files_only { "Recent ✓" } else { "Recent" })
-                .on_hover_text("modified in the last 30 days")
-                .clicked()
-            {
-                app.browse.recent_files_only = !app.browse.recent_files_only;
-                app.browse.listing_stale = true;
-            }
         });
     });
 }
@@ -350,7 +384,12 @@ fn draw_table(ui: &mut Ui, app: &mut IpicApp) {
 }
 
 fn draw_keyboard_navigation(ui: &mut Ui, app: &mut IpicApp) {
-    if app.search_box_has_focus {
+    // Enter is the confirm key of the rename dialog and the new-folder editor;
+    // while either is open it must not also open the selected file.
+    if app.search_box_has_focus
+        || app.browse.rename_dialog.is_some()
+        || app.browse.new_folder_buffer.is_some()
+    {
         return;
     }
     let listing_len = app.browse.listing.len();
@@ -479,7 +518,9 @@ fn draw_file_row(row: &mut egui_extras::TableRow<'_, '_>, app: &mut IpicApp, fil
         );
     });
     let Some(interact) = cell_response else { return };
-    if interact.clicked() {
+    // A right-click opens the context menu without a prior left-click, so it
+    // must select the row too (otherwise details/rename act on another file).
+    if interact.clicked() || interact.secondary_clicked() {
         app.browse.selected_row = Some(index);
         app.selected_file = Some((file.clone(), path.clone()));
     }
@@ -513,6 +554,9 @@ fn file_context_menu(ui: &mut Ui, app: &mut IpicApp, file: &FileRow, path: &str)
                     new_path.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default()
                 ));
                 app.browse.listing_stale = true;
+                // The copy exists only on disk; a rescan registers it in the
+                // catalog so the listing picks it up.
+                app.engine.spawn_scan();
             }
             Err(error) => app.push_notice(format!("duplicate failed: {error}")),
         }
@@ -520,7 +564,8 @@ fn file_context_menu(ui: &mut Ui, app: &mut IpicApp, file: &FileRow, path: &str)
     }
     if ui.button("Rename…").clicked() {
         app.browse.rename_dialog = Some(RenameDialog {
-            file_id: file.id,
+            file: file.clone(),
+            path: path.to_string(),
             edit_buffer: file.name.clone(),
         });
         ui.close();
@@ -536,6 +581,7 @@ fn file_context_menu(ui: &mut Ui, app: &mut IpicApp, file: &FileRow, path: &str)
             app.selected_file = None;
             app.browse.selected_row = None;
             app.browse.listing_stale = true;
+            app.push_notice("moved to trash".into());
         }
         ui.close();
     }

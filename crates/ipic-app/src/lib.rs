@@ -107,8 +107,16 @@ fn draw_rename_dialog(ui: &mut egui::Ui, app: &mut IpicApp) {
         .show(ui.ctx(), |ui| {
             ui.label("New name:");
             let response = ui.add(egui::TextEdit::singleline(&mut dialog.edit_buffer).clip_text(true));
+            // Focus the field when the dialog opens; never steal focus back
+            // after Enter/Escape surrender it.
+            if !response.has_focus() && !response.lost_focus() {
+                response.request_focus();
+            }
             if response.lost_focus() && ui.input(|input| input.key_pressed(egui::Key::Enter)) {
                 apply = true;
+            }
+            if ui.input(|input| input.key_pressed(egui::Key::Escape)) {
+                cancel = true;
             }
             ui.horizontal(|ui| {
                 if ui.button("Rename").clicked() {
@@ -119,22 +127,40 @@ fn draw_rename_dialog(ui: &mut egui::Ui, app: &mut IpicApp) {
                 }
             });
         });
-    if apply || cancel {
-        let dialog = app.browse.rename_dialog.take().unwrap();
-        if apply
-            && let Some((file, path)) = &app.selected_file
-                && file.id == dialog.file_id {
-                    let new_path = actions::rename_file(std::path::Path::new(path), &dialog.edit_buffer);
-                    if let Ok(new_path) = new_path {
-                        // Update the catalog row so the UI reflects it instantly.
-                        let new_name = new_path
-                            .file_name()
-                            .map(|name| name.to_string_lossy().into_owned())
-                            .unwrap_or_default();
-                        app.selected_file = Some((ipic_core::FileRow { name: new_name, ..file.clone() }, new_path.to_string_lossy().into_owned()));
-                        app.browse.listing_stale = true;
-                    }
+    if cancel {
+        app.browse.rename_dialog = None;
+        return;
+    }
+    if !apply {
+        return;
+    }
+    let dialog = app.browse.rename_dialog.take().unwrap();
+    match actions::rename_file(std::path::Path::new(&dialog.path), &dialog.edit_buffer) {
+        Ok(new_path) => {
+            let new_name = new_path
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            // Keep the details panel in sync when it shows the renamed file.
+            if let Some((file, _)) = &app.selected_file
+                && file.id == dialog.file.id {
+                    app.selected_file = Some((
+                        ipic_core::FileRow { name: new_name.clone(), ..file.clone() },
+                        new_path.to_string_lossy().into_owned(),
+                    ));
                 }
+            app.browse.listing_stale = true;
+            // The catalog still holds the old path; a rescan swaps in the row
+            // for the new one so the listing and opens stay correct.
+            app.engine.spawn_scan();
+            app.push_notice(format!("renamed → {new_name}"));
+        }
+        Err(error) => {
+            // Rejected name (empty or containing '/'): keep the dialog open so
+            // the user can correct it, and say why nothing happened.
+            app.browse.rename_dialog = Some(dialog);
+            app.push_notice(format!("rename failed: {error}"));
+        }
     }
 }
 
@@ -156,19 +182,22 @@ fn draw_settings_window(context: &Context, app: &mut IpicApp) {
                     }
                 });
             }
-            let mut new_root = String::new();
+            // The buffer must persist across frames: egui reads the text back
+            // from it every frame, so a fresh String would wipe each keystroke.
             ui.horizontal(|ui| {
-                let edit = egui::TextEdit::singleline(&mut new_root).hint_text("/absolute/path").desired_width(280.0);
+                let edit =
+                    egui::TextEdit::singleline(&mut app.settings_new_root).hint_text("/absolute/path").desired_width(280.0);
                 let response = ui.add(edit);
                 let mut add = ui.button("+ Add").clicked();
                 if response.lost_focus() && ui.input(|input| input.key_pressed(egui::Key::Enter)) {
                     add = true;
                 }
-                if add && !new_root.is_empty()
-                    && let Ok(canonical) = std::fs::canonicalize(&new_root)
+                if add && !app.settings_new_root.is_empty()
+                    && let Ok(canonical) = std::fs::canonicalize(&app.settings_new_root)
                         && !roots.contains(&canonical) {
                             roots.push(canonical);
                             roots_changed = true;
+                            app.settings_new_root.clear();
                         }
             });
             if roots_changed {

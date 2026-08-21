@@ -35,6 +35,8 @@ pub struct IpicApp {
     pub last_status_refresh: Instant,
     /// Search box contents; drives name filtering and semantic search.
     pub search_edit: String,
+    /// Settings window: text being typed into the add-root field.
+    pub settings_new_root: String,
     /// Injection point for tests: captures open requests instead of spawning.
     pub open_handler: Option<OpenHandler>,
     /// Whether the search box currently holds keyboard focus.
@@ -46,6 +48,17 @@ pub struct IpicApp {
 impl IpicApp {
     pub fn new(engine: Arc<Engine>, config: Config) -> Self {
         let (search_sender, search_receiver) = std::sync::mpsc::channel();
+        // The walker canonicalizes roots before indexing; mirror that here so
+        // sidebar/tree/history lookups match the catalog's stored paths
+        // (e.g. /var → /private/var symlinks on macOS).
+        let config = Config {
+            roots: config
+                .roots
+                .iter()
+                .map(|root| std::fs::canonicalize(root).unwrap_or_else(|_| root.clone()))
+                .collect(),
+            ..config
+        };
         Self {
             browse: BrowsePanel::default(),
             results: ResultsPanel::default(),
@@ -65,6 +78,7 @@ impl IpicApp {
             show_settings: false,
             last_status_refresh: Instant::now(),
             search_edit: String::new(),
+            settings_new_root: String::new(),
             open_handler: None,
             search_box_has_focus: false,
             active_query: String::new(),
@@ -121,6 +135,9 @@ impl IpicApp {
         self.current_directory = directory;
         self.browse.listing_stale = true;
         self.selected_file = None;
+        // Row indices belong to the old listing; refresh_listing would
+        // otherwise resurrect a selection from the stale index.
+        self.browse.selected_row = None;
     }
 
     pub fn navigate_back(&mut self) {
@@ -128,6 +145,8 @@ impl IpicApp {
             self.forward_history.push(self.current_directory.take());
             self.current_directory = previous;
             self.browse.listing_stale = true;
+            self.selected_file = None;
+            self.browse.selected_row = None;
         }
     }
 
@@ -136,6 +155,8 @@ impl IpicApp {
             self.back_history.push(self.current_directory.take());
             self.current_directory = next;
             self.browse.listing_stale = true;
+            self.selected_file = None;
+            self.browse.selected_row = None;
         }
     }
 
@@ -394,7 +415,9 @@ fn draw_search_box(ui: &mut Ui, app: &mut IpicApp) {
         app.browse.name_filter_active = app.search_edit.clone();
         app.browse.listing_stale = true;
     }
-    let enter_pressed = response.has_focus() && ui.input(|input| input.key_pressed(egui::Key::Enter));
+    // egui's singleline TextEdit surrenders focus the moment it processes Enter,
+    // so has_focus() is already false on this frame — lost_focus() carries it.
+    let enter_pressed = response.lost_focus() && ui.input(|input| input.key_pressed(egui::Key::Enter));
     if ui.button("Search").clicked() || enter_pressed {
         let query = app.search_edit.trim().to_string();
         if !query.is_empty() {

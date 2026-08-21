@@ -510,7 +510,7 @@ impl Catalog {
         let slots = Self::delete_files_chunks(&tx, &freed_files)?;
         tx.execute(
             "DELETE FROM files WHERE id IN (SELECT f.id FROM files f JOIN dirs d ON d.id = f.dir_id
-             WHERE d.path = ?1 OR d.path LIKE ?1 || '/%' OR (d.path = ?2 AND name = ?3))",
+             WHERE d.path = ?1 OR d.path LIKE ?1 || '/%' OR (d.path = ?2 AND f.name = ?3))",
             params![target, parent_of(target), file_name_of(target)],
         )?;
         tx.execute(
