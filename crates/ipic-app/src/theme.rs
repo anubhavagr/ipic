@@ -1,19 +1,20 @@
-//! Modern dark theme: near-black slate surfaces, electric-blue accent,
-//! rounded corners, Inter typography.
+//! Light minimal theme: clean neutrals, one electric accent, hairline
+//! borders — whitespace and typography carry the design.
 
-use egui::{Color32, Context, CornerRadius, FontDefinitions, FontFamily, FontId, TextStyle, Visuals};
+use egui::{Color32, Context, CornerRadius, FontDefinitions, FontFamily, FontId, Stroke, TextStyle, Visuals};
 
-pub const SURFACE_BASE: Color32 = Color32::from_rgb(14, 16, 20);
-pub const SURFACE_PANEL: Color32 = Color32::from_rgb(19, 22, 28);
-pub const SURFACE_CARD: Color32 = Color32::from_rgb(26, 30, 38);
-pub const SURFACE_HOVER: Color32 = Color32::from_rgb(33, 38, 48);
-pub const ACCENT: Color32 = Color32::from_rgb(79, 140, 255);
-pub const ACCENT_SOFT: Color32 = Color32::from_rgb(58, 92, 153);
-pub const TEXT_PRIMARY: Color32 = Color32::from_rgb(230, 233, 239);
-pub const TEXT_DIM: Color32 = Color32::from_rgb(139, 147, 163);
-pub const SUCCESS: Color32 = Color32::from_rgb(74, 200, 140);
-pub const WARNING: Color32 = Color32::from_rgb(240, 180, 80);
-pub const DANGER: Color32 = Color32::from_rgb(235, 100, 100);
+pub const SURFACE_BASE: Color32 = Color32::from_rgb(250, 250, 251); // app canvas
+pub const SURFACE_PANEL: Color32 = Color32::from_rgb(243, 243, 245); // sidebar, footer
+pub const SURFACE_CARD: Color32 = Color32::from_rgb(255, 255, 255); // cards, inputs
+pub const SURFACE_HOVER: Color32 = Color32::from_rgb(235, 235, 239);
+pub const BORDER: Color32 = Color32::from_rgb(226, 226, 231);
+pub const ACCENT: Color32 = Color32::from_rgb(38, 82, 248); // electric blue
+pub const ACCENT_SOFT: Color32 = Color32::from_rgb(226, 233, 255); // selection fill
+pub const TEXT_PRIMARY: Color32 = Color32::from_rgb(24, 27, 32);
+pub const TEXT_DIM: Color32 = Color32::from_rgb(108, 114, 124);
+pub const SUCCESS: Color32 = Color32::from_rgb(22, 138, 90);
+pub const WARNING: Color32 = Color32::from_rgb(174, 118, 18);
+pub const DANGER: Color32 = Color32::from_rgb(219, 42, 42);
 
 /// Material Icons (classic) codepoints used across the UI.
 pub mod icons {
@@ -80,23 +81,28 @@ pub fn apply(context: &Context) {
     context.set_fonts(fonts);
 
     context.all_styles_mut(|style| {
-        style.visuals = Visuals::dark();
+        style.visuals = Visuals::light();
         style.visuals.panel_fill = SURFACE_BASE;
         style.visuals.window_fill = SURFACE_CARD;
-        style.visuals.extreme_bg_color = SURFACE_PANEL;
+        style.visuals.extreme_bg_color = SURFACE_CARD;
         style.visuals.faint_bg_color = SURFACE_PANEL;
         style.visuals.hyperlink_color = ACCENT;
         style.visuals.warn_fg_color = WARNING;
         style.visuals.error_fg_color = DANGER;
         style.visuals.selection.bg_fill = ACCENT_SOFT;
         style.visuals.selection.stroke.color = TEXT_PRIMARY;
+        // Hairline borders, not fills, define interactive surfaces.
+        let border = Stroke::new(1.0, BORDER);
         style.visuals.widgets.noninteractive.weak_bg_fill = SURFACE_PANEL;
+        style.visuals.widgets.noninteractive.bg_stroke = Stroke::NONE;
         style.visuals.widgets.inactive.weak_bg_fill = SURFACE_CARD;
+        style.visuals.widgets.inactive.bg_stroke = border;
         style.visuals.widgets.hovered.weak_bg_fill = SURFACE_HOVER;
+        style.visuals.widgets.hovered.bg_stroke = Stroke::new(1.0, ACCENT.gamma_multiply(0.45));
         style.visuals.widgets.active.weak_bg_fill = SURFACE_HOVER;
+        style.visuals.widgets.active.bg_stroke = Stroke::new(1.0, ACCENT);
         style.visuals.widgets.open.weak_bg_fill = SURFACE_HOVER;
-        style.visuals.widgets.hovered.bg_fill = ACCENT_SOFT;
-        style.visuals.widgets.active.bg_fill = ACCENT;
+        style.visuals.widgets.open.bg_stroke = border;
         for widget in [
             &mut style.visuals.widgets.noninteractive,
             &mut style.visuals.widgets.inactive,
@@ -109,6 +115,8 @@ pub fn apply(context: &Context) {
         }
         style.visuals.window_corner_radius = CornerRadius::same(10);
         style.visuals.menu_corner_radius = CornerRadius::same(8);
+        style.visuals.popup_shadow = egui::Shadow::NONE;
+        style.visuals.window_shadow = egui::Shadow::NONE;
         style.visuals.clip_rect_margin = 0.0;
         style.spacing.item_spacing = egui::vec2(8.0, 6.0);
         style.spacing.button_padding = egui::vec2(10.0, 5.0);

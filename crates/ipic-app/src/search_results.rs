@@ -105,7 +105,7 @@ fn draw_result_card(ui: &mut Ui, app: &mut IpicApp, position: usize, hit: &Searc
                     ui.add_space(2.0);
                     ui.label(
                         RichText::new(hit.snippet.chars().take(240).collect::<String>())
-                            .color(Color32::from_rgb(168, 175, 190))
+                            .color(Color32::from_rgb(96, 102, 112))
                             .small(),
                     );
                 }

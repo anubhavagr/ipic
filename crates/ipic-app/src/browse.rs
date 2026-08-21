@@ -254,7 +254,7 @@ fn draw_toolbar(ui: &mut Ui, app: &mut IpicApp) {
             let selected = app.browse.kind_filter.contains(&kind);
             let label = kind.label();
             let chip = egui::Button::new(
-                RichText::new(label).color(if selected { Color32::WHITE } else { theme::TEXT_DIM }),
+                RichText::new(label).color(if selected { theme::TEXT_PRIMARY } else { theme::TEXT_DIM }).strong(),
             )
             .fill(if selected { theme::ACCENT_SOFT } else { theme::SURFACE_CARD });
             if ui.add(chip).clicked() {
