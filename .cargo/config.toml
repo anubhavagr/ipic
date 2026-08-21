@@ -1,0 +1,12 @@
+# Project build configuration.
+# Overrides a possible global `panic = "abort"`: the indexing engine contains
+# malformed-PDF panics with catch_unwind, which requires unwinding semantics.
+# Native CPU targeting (NEON/SIMD on Apple Silicon) is preserved.
+
+[build]
+jobs = 12
+
+rustflags = ["-C", "target-cpu=native"]
+
+[profile.release]
+panic = "unwind"

@@ -1,0 +1,23 @@
+[package]
+name = "ipic-rag"
+description = "On-device multimodal RAG: embeddings, ASR, vector index, hybrid search"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow = "1.0.104"
+crossbeam-channel = "0.5.16"
+fastembed = "6.0.0"
+ipic-core = { path = "../ipic-core" }
+memmap2 = "0.9.11"
+pdf-extract = "0.12.0"
+rayon = "1.12.0"
+rusqlite = { version = "0.40.2", features = ["bundled"] }
+serde = { version = "1.0.229", features = ["derive"] }
+symphonia = { version = "0.6.1", features = ["mp3", "flac", "wav", "ogg", "vorbis", "aac", "isomp4"] }
+ureq = { version = "3.4.0", features = ["rustls"] }
+whisper-rs = { version = "0.16.0", features = ["metal"] }
+
+[dev-dependencies]
+walkdir = "2.5.0"

@@ -1,0 +1,17 @@
+[package]
+name = "ipic-cli"
+description = "Headless driver for ipic: scan, index, search"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "ipic-cli"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1.0.104"
+clap = { version = "4.6.6", features = ["derive"] }
+ipic-core = { path = "../ipic-core" }
+ipic-rag = { path = "../ipic-rag" }
+toml = "1.1.4"
