@@ -107,7 +107,14 @@ impl Engine {
     }
 
     /// Boots the engine against an explicit data directory (tests, portable installs).
-    pub fn launch_with_data_dir(config: Config, data_directory: PathBuf) -> Result<Arc<Engine>> {
+    pub fn launch_with_data_dir(mut config: Config, data_directory: PathBuf) -> Result<Arc<Engine>> {
+        // The walker indexes canonical roots; mirror that everywhere so
+        // sidebar/tree/library lookups match the catalog's stored paths.
+        config.roots = config
+            .roots
+            .iter()
+            .map(|root| std::fs::canonicalize(root).unwrap_or_else(|_| root.clone()))
+            .collect();
         let core_count = std::thread::available_parallelism().map(|count| count.get()).unwrap_or(4);
         let catalog = Arc::new(Catalog::open(&data_directory.join("catalog.db"))?);
 
@@ -388,6 +395,13 @@ impl Engine {
     pub fn release_vector_slots(&self, slots: &[i64]) {
         if !slots.is_empty() {
             self.vector_store.lock().unwrap().free(slots).ok();
+        }
+    }
+
+    /// Frees acoustic-fingerprint slots after external deletions (GUI trash).
+    pub fn free_fingerprint_slots(&self, slots: &[i64]) {
+        if !slots.is_empty() {
+            self.audio_store.lock().unwrap().free(slots).ok();
         }
     }
 

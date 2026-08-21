@@ -89,6 +89,7 @@ impl eframe::App for IpicApp {
                 .show(ui.ctx(), |ui| details::draw(ui, self));
             if !window_open {
                 self.selected_file = None;
+                self.browse.selected_row = None;
             }
         }
         egui::CentralPanel::default()

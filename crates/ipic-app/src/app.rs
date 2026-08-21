@@ -46,6 +46,8 @@ pub struct IpicApp {
     pub search_box_has_focus: bool,
     /// Active unified-search query (empty = browsing mode).
     pub active_query: String,
+    /// Directory being browsed when the current search started (Esc restores it).
+    pub directory_before_search: Option<Option<ipic_core::DirRow>>,
 }
 
 impl IpicApp {
@@ -81,6 +83,7 @@ impl IpicApp {
             show_settings: false,
             last_status_refresh: Instant::now(),
             search_edit: String::new(),
+            directory_before_search: None,
             settings_new_root: String::new(),
             open_handler: None,
             reveal_handler: None,
@@ -195,6 +198,7 @@ impl IpicApp {
         }
         self.searching = true;
         self.results.hits = Vec::new();
+        self.directory_before_search = Some(self.current_directory.clone());
         let engine = Arc::clone(&self.engine);
         let sender = self.search_sender.clone();
         std::thread::spawn(move || {
@@ -236,6 +240,7 @@ impl IpicApp {
             self.push_notice(format!("captured {:.1}s of audio", samples.len() as f32 / 16_000.0));
             self.searching = true;
             self.results.hits = Vec::new();
+            self.directory_before_search = Some(self.current_directory.clone());
             let engine = Arc::clone(&self.engine);
             let sender = self.search_sender.clone();
             std::thread::spawn(move || {
@@ -327,12 +332,20 @@ impl IpicApp {
                 self.dispatch_reveal(std::path::Path::new(&path));
             }
         if clear_search {
-            self.active_query.clear();
-            self.search_edit.clear();
-            self.results.hits.clear();
-            self.browse.name_filter_active.clear();
-            self.browse.listing_stale = true;
+            self.clear_search();
         }
+    }
+
+    /// Leaves search mode and restores the directory being browsed before it.
+    pub fn clear_search(&mut self) {
+        self.active_query.clear();
+        self.search_edit.clear();
+        self.results.hits.clear();
+        self.browse.name_filter_active.clear();
+        if let Some(previous) = self.directory_before_search.take() {
+            self.current_directory = previous;
+        }
+        self.browse.listing_stale = true;
     }
 }
 
@@ -343,12 +356,13 @@ pub fn draw_top_bar(ui: &mut Ui, app: &mut IpicApp) {
             ui.horizontal_centered(|ui| {
                 ui.label(egui::RichText::new("◆ ipic").color(crate::theme::ACCENT).size(19.0).strong());
                 ui.add_space(10.0);
+                use crate::theme::icons;
                 if ui
                     .add_enabled(
                         !app.back_history.is_empty(),
-                        egui::Button::new("‹").min_size(egui::vec2(26.0, 24.0)),
+                        egui::Button::new(crate::theme::icon(icons::BACK, 16.0)).min_size(egui::vec2(26.0, 24.0)),
                     )
-                    .on_hover_text("Back (history)")
+                    .on_hover_text("Back (⌘[)")
                     .clicked()
                 {
                     app.navigate_back();
@@ -356,14 +370,18 @@ pub fn draw_top_bar(ui: &mut Ui, app: &mut IpicApp) {
                 if ui
                     .add_enabled(
                         !app.forward_history.is_empty(),
-                        egui::Button::new("›").min_size(egui::vec2(26.0, 24.0)),
+                        egui::Button::new(crate::theme::icon(icons::FORWARD, 16.0)).min_size(egui::vec2(26.0, 24.0)),
                     )
-                    .on_hover_text("Forward (history)")
+                    .on_hover_text("Forward (⌘])")
                     .clicked()
                 {
                     app.navigate_forward();
                 }
-                if ui.button("↑").on_hover_text("Parent directory").clicked() {
+                if ui
+                    .button(crate::theme::icon(icons::UP, 16.0))
+                    .on_hover_text("Enclosing folder (⌘↑)")
+                    .clicked()
+                {
                     app.navigate_up();
                 }
                 ui.add_space(4.0);
@@ -396,7 +414,7 @@ fn draw_search_box(ui: &mut Ui, app: &mut IpicApp) {
         .color(crate::theme::DANGER)
         .strong()
     } else {
-        egui::RichText::new("🎙").color(crate::theme::TEXT_PRIMARY)
+        crate::theme::icon(crate::theme::icons::MIC, 16.0)
     };
     if ui
         .add(egui::Button::new(mic_label).fill(if recording {
@@ -430,7 +448,12 @@ fn draw_search_box(ui: &mut Ui, app: &mut IpicApp) {
     // egui's singleline TextEdit surrenders focus the moment it processes Enter,
     // so has_focus() is already false on this frame — lost_focus() carries it.
     let enter_pressed = response.lost_focus() && ui.input(|input| input.key_pressed(egui::Key::Enter));
-    if ui.button("Search").clicked() || enter_pressed {
+    if ui
+        .button(crate::theme::icon(crate::theme::icons::SEARCH, 16.0))
+        .on_hover_text("Search (Enter)")
+        .clicked()
+        || enter_pressed
+    {
         let query = app.search_edit.trim().to_string();
         if !query.is_empty() {
             app.active_query = query.clone();
@@ -485,6 +508,17 @@ fn draw_breadcrumb(ui: &mut Ui, app: &mut IpicApp) {
     }
 }
 
+/// Compact footer progress: label + fraction + mini bar.
+fn draw_footer_progress(ui: &mut Ui, label: &str, fraction: f32, remaining: u64) {
+    ui.label(egui::RichText::new(format!("{label} {remaining} left")).color(crate::theme::TEXT_DIM).small());
+    let width = 90.0;
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(width, 5.0), egui::Sense::hover());
+    let painter = ui.painter();
+    painter.rect_filled(rect, egui::CornerRadius::same(2), crate::theme::SURFACE_HOVER);
+    let filled = egui::Rect::from_min_size(rect.min, egui::vec2(width * fraction.clamp(0.0, 1.0), 5.0));
+    painter.rect_filled(filled, egui::CornerRadius::same(2), crate::theme::ACCENT);
+}
+
 pub fn draw_status_bar(ui: &mut Ui, app: &mut IpicApp) {
     egui::Panel::bottom("status_bar")
         .frame(
@@ -520,6 +554,23 @@ pub fn draw_status_bar(ui: &mut Ui, app: &mut IpicApp) {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     for (message, _) in app.notices.iter().rev() {
                         ui.label(egui::RichText::new(message.clone()).color(crate::theme::TEXT_DIM).small());
+                    }
+                    // Progress cluster: indexing/scanning fraction + spinner.
+                    let (pending, _busy, done, failed) =
+                        app.engine.catalog.rag_counters().unwrap_or((0, 0, 0, 0));
+                    let total = (done + failed + pending).max(1) as f32;
+                    if pending > 0 || status.scanning {
+                        let completed = (done + failed) as f32;
+                        let fraction = completed / total;
+                        draw_footer_progress(ui, if status.scanning {
+                            "scanning + indexing"
+                        } else {
+                            "indexing"
+                        }, fraction, pending as u64);
+                        ui.spinner();
+                    } else if app.searching {
+                        ui.spinner();
+                        ui.label(egui::RichText::new("searching").color(crate::theme::TEXT_DIM).small());
                     }
                 });
             });

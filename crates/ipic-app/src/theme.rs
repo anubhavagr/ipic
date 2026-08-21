@@ -15,6 +15,36 @@ pub const SUCCESS: Color32 = Color32::from_rgb(74, 200, 140);
 pub const WARNING: Color32 = Color32::from_rgb(240, 180, 80);
 pub const DANGER: Color32 = Color32::from_rgb(235, 100, 100);
 
+/// Material Icons (classic) codepoints used across the UI.
+pub mod icons {
+    pub const SEARCH: &str = "\u{e8b6}";
+    pub const MIC: &str = "\u{e029}";
+    pub const SETTINGS: &str = "\u{e8b8}";
+    pub const INFO: &str = "\u{e88f}";
+    pub const BACK: &str = "\u{e5c3}";
+    pub const FORWARD: &str = "\u{e5c4}";
+    pub const UP: &str = "\u{e5d8}";
+    pub const REFRESH: &str = "\u{e5d5}";
+    pub const NEW_FOLDER: &str = "\u{e2cc}";
+    pub const CLOSE: &str = "\u{e5cd}";
+    pub const SORT: &str = "\u{e164}";
+    pub const FOLDER: &str = "\u{e2c7}";
+    pub const CHECK: &str = "\u{e876}";
+    pub const DELETE: &str = "\u{e872}";
+    pub const OPEN: &str = "\u{e89e}";
+    pub const CONTENT_COPY: &str = "\u{e14d}";
+    pub const DRIVE_FILE_RENAME: &str = "\u{e923}";
+    pub const CONTENT_PASTE: &str = "\u{e14f}";
+    pub const VISIBILITY: &str = "\u{e8f4}";
+}
+
+/// A Material icon sized for buttons.
+pub fn icon(codepoint: &str, size: f32) -> egui::RichText {
+    egui::RichText::new(codepoint)
+        .font(egui::FontId::new(size, FontFamily::Name("material-icons".into())))
+        .color(TEXT_PRIMARY)
+}
+
 /// Registers embedded fonts and applies the visual style.
 pub fn apply(context: &Context) {
     let mut fonts = FontDefinitions::default();
@@ -22,6 +52,12 @@ pub fn apply(context: &Context) {
         "inter".into(),
         std::sync::Arc::new(egui::FontData::from_static(include_bytes!(
             "../assets/fonts/Inter-Variable.ttf"
+        ))),
+    );
+    fonts.font_data.insert(
+        "material-icons".into(),
+        std::sync::Arc::new(egui::FontData::from_static(include_bytes!(
+            "../assets/fonts/MaterialIcons-Regular.ttf"
         ))),
     );
     fonts.font_data.insert(
@@ -40,6 +76,7 @@ pub fn apply(context: &Context) {
         .entry(FontFamily::Monospace)
         .or_default()
         .insert(0, "jetbrains-mono".into());
+    fonts.families.insert(FontFamily::Name("material-icons".into()), vec!["material-icons".into()]);
     context.set_fonts(fonts);
 
     context.all_styles_mut(|style| {

@@ -34,8 +34,12 @@ pub struct BrowsePanel {
     pub listing_dir: Option<i64>,
     pub listing_stale: bool,
     pub rename_dialog: Option<RenameDialog>,
-    /// Flat index of the selected row for keyboard navigation.
+    /// Flat index of the focused row for keyboard navigation.
     pub selected_row: Option<usize>,
+    /// All selected row indexes (⌘-click toggles, ⇧-click extends, ⌘A selects all).
+    pub selected_rows: Vec<usize>,
+    /// Anchor row for shift-range selection.
+    pub selection_anchor: Option<usize>,
     pub new_folder_buffer: Option<String>,
 }
 
@@ -53,6 +57,8 @@ impl Default for BrowsePanel {
             listing_stale: true,
             rename_dialog: None,
             selected_row: None,
+            selected_rows: Vec::new(),
+            selection_anchor: None,
             new_folder_buffer: None,
         }
     }
@@ -81,28 +87,48 @@ impl BrowsePanel {
             Err(_) => return,
         };
         let directory_id = app.current_directory.as_ref().map(|dir| dir.id);
-        let files = app
-            .engine
-            .catalog
-            .children(
-                &connection,
-                directory_id,
-                &app.browse.active_filter(),
-                app.browse.sort_key,
-                app.browse.sort_ascending,
-                20_000,
-            )
-            .unwrap_or_default();
-        let directories = match directory_id {
-            None => Vec::new(),
-            Some(directory_id) => app
+        let mut listing: Vec<ListingEntry> = match directory_id {
+            None => {
+                // Library view: the real top level of every root — folders
+                // first, then files — never a flattened deep dump.
+                let mut roots = Vec::new();
+                for root in app.engine.current_roots() {
+                    if let Some(root_row) = app
+                        .engine
+                        .catalog
+                        .dir_by_path(&connection, &root.to_string_lossy())
+                        .ok()
+                        .flatten()
+                    {
+                        roots.push(ListingEntry::Directory(root_row));
+                    }
+                }
+                roots
+            }
+            Some(directory_id) => {
+                let directories = app
+                    .engine
+                    .catalog
+                    .tree_children(&connection, Some(directory_id))
+                    .unwrap_or_default();
+                directories.into_iter().map(ListingEntry::Directory).collect::<Vec<_>>()
+            }
+        };
+        if directory_id.is_some() {
+            let files = app
                 .engine
                 .catalog
-                .tree_children(&connection, Some(directory_id))
-                .unwrap_or_default(),
-        };
-        let mut listing: Vec<ListingEntry> = directories.into_iter().map(ListingEntry::Directory).collect();
-        listing.extend(files.into_iter().map(ListingEntry::File));
+                .children(
+                    &connection,
+                    directory_id,
+                    &app.browse.active_filter(),
+                    app.browse.sort_key,
+                    app.browse.sort_ascending,
+                    20_000,
+                )
+                .unwrap_or_default();
+            listing.extend(files.into_iter().map(ListingEntry::File));
+        }
         if let Some(selected) = app.browse.selected_row {
             app.selected_file = listing.get(selected).and_then(|entry| match entry {
                 ListingEntry::File(file) => Some((file.clone(), full_path(app, file))),
@@ -145,7 +171,19 @@ fn draw_toolbar(ui: &mut Ui, app: &mut IpicApp) {
     ui.horizontal(|ui| {
         match &app.browse.new_folder_buffer {
             None => {
-                if ui.button("＋ New Folder").clicked() {
+                let icon_clicked = ui
+                    .button(crate::theme::icon(crate::theme::icons::NEW_FOLDER, 16.0))
+                    .on_hover_text("New folder in the open directory")
+                    .clicked();
+                let text_clicked = ui
+                    .add(
+                        egui::Button::new(
+                            RichText::new("New Folder").color(theme::TEXT_PRIMARY).small(),
+                        )
+                        .fill(Color32::TRANSPARENT),
+                    )
+                    .clicked();
+                if icon_clicked || text_clicked {
                     app.browse.new_folder_buffer = Some("New Folder".into());
                 }
             }
@@ -169,11 +207,8 @@ fn draw_toolbar(ui: &mut Ui, app: &mut IpicApp) {
                 // Enter/Escape may surrender focus mid-frame, so both the
                 // focused and just-unfocused states count as "had the keyboard".
                 let escape_pressed = ui.input(|input| input.key_pressed(egui::Key::Escape));
-                let close_button_response = ui.button("✕");
-                eprintln!("DBG pointer={:?} down={} close_hover={}", ui.input(|input| input.pointer.latest_pos()), ui.input(|input| input.pointer.any_down()), close_button_response.hovered());
-                let cancel = close_button_response.clicked()
+                let cancel = ui.button("Cancel").clicked()
                     || escape_pressed && (response.has_focus() || response.lost_focus());
-                eprintln!("DBG cancel={cancel} confirm={confirm}");
                 if cancel {
                     app.browse.new_folder_buffer = None;
                 } else if confirm {
@@ -202,7 +237,15 @@ fn draw_toolbar(ui: &mut Ui, app: &mut IpicApp) {
                 }
             }
         }
-        if ui.button("⟳").on_hover_text("Rescan roots now").clicked() {
+        if ui
+            .button(
+                egui::RichText::new(crate::theme::icons::REFRESH)
+                    .font(egui::FontId::new(15.0, egui::FontFamily::Name("material-icons".into())))
+                    .color(crate::theme::TEXT_PRIMARY),
+            )
+            .on_hover_text("Rescan roots now")
+            .clicked()
+        {
             app.engine.spawn_scan();
             app.push_notice("rescan started".into());
         }
@@ -394,12 +437,20 @@ fn draw_keyboard_navigation(ui: &mut Ui, app: &mut IpicApp) {
     if listing_len == 0 {
         return;
     }
-    let (mut move_down, mut move_up, mut open) = (false, false, false);
+    let (mut move_down, mut move_up, mut open, mut select_all) = (false, false, false, false);
+    let command = ui.input(|input| input.modifiers.command);
     ui.input(|input| {
         move_down = input.key_pressed(egui::Key::ArrowDown);
         move_up = input.key_pressed(egui::Key::ArrowUp);
         open = input.key_pressed(egui::Key::Enter);
     });
+    if command && ui.input(|input| input.key_pressed(egui::Key::A)) {
+        select_all = true;
+    }
+    if select_all {
+        app.browse.selected_rows = (0..listing_len).collect();
+        return;
+    }
     if move_down || move_up {
         let next = match app.browse.selected_row {
             None => 0,
@@ -448,6 +499,14 @@ fn sortable_header(ui: &mut Ui, app: &mut IpicApp, key: SortKey, label: &str) {
         }
         app.browse.listing_stale = true;
     }
+}
+
+fn ui_input_command(row: &egui_extras::TableRow<'_, '_>) -> bool {
+    row.response().ctx.input(|input| input.modifiers.command)
+}
+
+fn row_shift_pressed(row: &egui_extras::TableRow<'_, '_>) -> bool {
+    row.response().ctx.input(|input| input.modifiers.shift)
 }
 
 fn draw_file_row(row: &mut egui_extras::TableRow<'_, '_>, app: &mut IpicApp, file: &FileRow, index: usize) {
@@ -523,11 +582,36 @@ fn draw_file_row(row: &mut egui_extras::TableRow<'_, '_>, app: &mut IpicApp, fil
         );
     });
     let Some(interact) = cell_response else { return };
+    let command_pressed = ui_input_command(row);
     // A right-click opens the context menu without a prior left-click, so it
     // must select the row too (otherwise details/rename act on another file).
-    if interact.clicked() || interact.secondary_clicked() {
+    if interact.secondary_clicked() {
         app.browse.selected_row = Some(index);
         app.selected_file = Some((file.clone(), path.clone()));
+        if !app.browse.selected_rows.contains(&index) {
+            app.browse.selected_rows = vec![index];
+        }
+    }
+    if interact.clicked() {
+        app.browse.selected_row = Some(index);
+        app.selected_file = Some((file.clone(), path.clone()));
+        if command_pressed {
+            // Toggle membership, keep others.
+            if let Some(position) = app.browse.selected_rows.iter().position(|row| *row == index) {
+                app.browse.selected_rows.remove(position);
+            } else {
+                app.browse.selected_rows.push(index);
+            }
+            app.browse.selection_anchor = Some(index);
+        } else if let Some(anchor) = app.browse.selection_anchor
+            && row_shift_pressed(row)
+        {
+            let (low, high) = (anchor.min(index), anchor.max(index));
+            app.browse.selected_rows = (low..=high).collect();
+        } else {
+            app.browse.selected_rows = vec![index];
+            app.browse.selection_anchor = Some(index);
+        }
     }
     if interact.double_clicked() {
         app.dispatch_open(Path::new(&path));

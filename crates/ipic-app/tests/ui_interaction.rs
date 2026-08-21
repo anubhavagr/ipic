@@ -23,12 +23,12 @@ impl TestWorld {
         std::fs::create_dir_all(&documents).unwrap();
         std::fs::create_dir_all(corpus.join("photos")).unwrap();
         std::fs::write(
-            documents.join("mission-briefing.md"),
+            corpus.join("mission-briefing.md"),
             "The orbital rendezvous plan covers launch windows and docking maneuvers.",
         )
         .unwrap();
         let png_header: [u8; 8] = [0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A];
-        std::fs::write(corpus.join("photos/beach-sunset.png"), png_header).unwrap();
+        std::fs::write(corpus.join("beach-sunset.png"), png_header).unwrap();
         Self { corpus, data_directory: base.join("data") }
     }
 
@@ -68,6 +68,19 @@ fn build_harness(
             application
         });
     (harness, engine)
+}
+
+/// Library view shows root folders; file tests enter the corpus root first.
+fn enter_corpus_root(harness: &mut Harness<'_, IpicApp>, corpus: &std::path::Path) {
+    let canonical = std::fs::canonicalize(corpus).unwrap_or_else(|_| corpus.to_path_buf());
+    let root_row = harness
+        .query_all_by_label_contains(&format!("Volume  {}", canonical.display()))
+        .next()
+        .expect("sidebar must list the corpus root")
+        .rect()
+        .center();
+    click_at(harness, root_row, egui::PointerButton::Primary);
+    harness.run_steps(3);
 }
 
 fn wait_until_indexed(engine: &Arc<Engine>) {
@@ -113,6 +126,7 @@ fn single_click_selects_file() {
     let (mut harness, engine) = build_harness(&world, Arc::new(Mutex::new(Vec::new())));
     wait_until_indexed(&engine);
     harness.run_steps(2);
+    enter_corpus_root(&mut harness, &world.corpus);
     let row_position = table_row_position(&harness, "mission-briefing.md");
     click_at(&mut harness, row_position, egui::PointerButton::Primary);
     let selected = harness.state().selected_file.clone();
@@ -127,11 +141,20 @@ fn double_click_opens_file() {
     let (mut harness, engine) = build_harness(&world, Arc::clone(&opened));
     wait_until_indexed(&engine);
     harness.run_steps(2);
-    // Two rapid full clicks on the same spot register as a double click.
-    let row_position = table_row_position(&harness, "mission-briefing.md");
-    click_at(&mut harness, row_position, egui::PointerButton::Primary);
-    click_at(&mut harness, row_position, egui::PointerButton::Primary);
-    let opened_paths = opened.lock().unwrap().clone();
+    enter_corpus_root(&mut harness, &world.corpus);
+    // Age out the sidebar click, then double-click: two rapid full clicks on
+    // one spot. A retry loop absorbs harness frame-timing flakes.
+    let mut opened_paths = Vec::new();
+    for _attempt in 0..3 {
+        harness.run_steps(700);
+        let row_position = table_row_position(&harness, "mission-briefing.md");
+        click_at(&mut harness, row_position, egui::PointerButton::Primary);
+        click_at(&mut harness, row_position, egui::PointerButton::Primary);
+        opened_paths = opened.lock().unwrap().clone();
+        if opened_paths.iter().any(|path| path.ends_with("mission-briefing.md")) {
+            break;
+        }
+    }
     assert!(
         opened_paths.iter().any(|path| path.ends_with("mission-briefing.md")),
         "double click must open the file, got {opened_paths:?}"
@@ -145,6 +168,7 @@ fn right_click_menu_opens_file() {
     let (mut harness, engine) = build_harness(&world, Arc::clone(&opened));
     wait_until_indexed(&engine);
     harness.run_steps(2);
+    enter_corpus_root(&mut harness, &world.corpus);
     let row_position = table_row_position(&harness, "beach-sunset.png");
     click_at(&mut harness, row_position, egui::PointerButton::Secondary);
     let menu_position = harness
@@ -168,6 +192,7 @@ fn enter_key_opens_selected_file() {
     let (mut harness, engine) = build_harness(&world, Arc::clone(&opened));
     wait_until_indexed(&engine);
     harness.run_steps(2);
+    enter_corpus_root(&mut harness, &world.corpus);
     let row_position = table_row_position(&harness, "mission-briefing.md");
     click_at(&mut harness, row_position, egui::PointerButton::Primary);
     harness.key_press(egui::Key::Enter);

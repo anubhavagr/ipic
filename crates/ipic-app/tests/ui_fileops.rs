@@ -212,6 +212,7 @@ fn context_menu_open_reveal_copy_path_act_without_panic() {
     let (mut harness, engine) = build_harness(&world, Arc::clone(&opened), Arc::clone(&revealed));
     wait_until_indexed(&engine);
     harness.run_steps(2);
+    enter_corpus_root(&mut harness, &world.corpus);
 
     // All file-operation entries exist on the menu.
     click_label(&mut harness, "todo.txt", egui::PointerButton::Secondary);
@@ -247,6 +248,8 @@ fn duplicate_creates_real_copy_on_disk_and_refreshes_listing() {
     let (mut harness, engine) = build_harness(&world, Arc::new(Mutex::new(Vec::new())), Arc::new(Mutex::new(Vec::new())));
     wait_until_indexed(&engine);
     harness.run_steps(2);
+    enter_corpus_root(&mut harness, &world.corpus);
+    enter_subfolder(&mut harness, "photos");
 
     click_label(&mut harness, "beach-sunset.png", egui::PointerButton::Secondary);
     click_menu_entry(&mut harness, "Duplicate");
@@ -271,10 +274,12 @@ fn rename_dialog_enter_renames_file_without_leaking_open() {
     let (mut harness, engine) = build_harness(&world, Arc::clone(&opened), Arc::clone(&revealed));
     wait_until_indexed(&engine);
     harness.run_steps(2);
+    enter_corpus_root(&mut harness, &world.corpus);
 
     // Select a different file first: Enter inside the rename dialog must act
     // on the dialog's target, not open the current selection.
     click_label(&mut harness, "todo.txt", egui::PointerButton::Primary);
+    enter_subfolder(&mut harness, "documents");
     open_rename_dialog(&mut harness, "mission-briefing.md");
     type_into_focused_edit(&mut harness, "flight-plan.md");
     harness.key_press(egui::Key::Enter);
@@ -301,6 +306,8 @@ fn rename_dialog_rename_button_renames_file() {
     let (mut harness, engine) = build_harness(&world, Arc::new(Mutex::new(Vec::new())), Arc::new(Mutex::new(Vec::new())));
     wait_until_indexed(&engine);
     harness.run_steps(2);
+    enter_corpus_root(&mut harness, &world.corpus);
+    enter_subfolder(&mut harness, "documents");
 
     open_rename_dialog(&mut harness, "mission-briefing.md");
     type_into_focused_edit(&mut harness, "docking-notes.md");
@@ -323,6 +330,8 @@ fn rename_dialog_cancel_and_escape_leave_file_untouched() {
     let (mut harness, engine) = build_harness(&world, Arc::new(Mutex::new(Vec::new())), Arc::new(Mutex::new(Vec::new())));
     wait_until_indexed(&engine);
     harness.run_steps(2);
+    enter_corpus_root(&mut harness, &world.corpus);
+    enter_subfolder(&mut harness, "documents");
     let original_path = world.corpus.join("documents/mission-briefing.md");
     let original_bytes = std::fs::read(&original_path).unwrap();
 
@@ -351,6 +360,8 @@ fn rename_dialog_rejects_invalid_names_without_damage() {
     let (mut harness, engine) = build_harness(&world, Arc::new(Mutex::new(Vec::new())), Arc::new(Mutex::new(Vec::new())));
     wait_until_indexed(&engine);
     harness.run_steps(2);
+    enter_corpus_root(&mut harness, &world.corpus);
+    enter_subfolder(&mut harness, "documents");
     let original_path = world.corpus.join("documents/mission-briefing.md");
 
     // A name containing a path separator is rejected, dialog stays available.
@@ -388,6 +399,7 @@ fn move_to_trash_removes_file_from_disk_and_listing() {
     let (mut harness, engine) = build_harness(&world, Arc::new(Mutex::new(Vec::new())), Arc::new(Mutex::new(Vec::new())));
     wait_until_indexed(&engine);
     harness.run_steps(2);
+    enter_corpus_root(&mut harness, &world.corpus);
     let target = world.corpus.join("todo.txt");
     assert!(target.exists());
 
@@ -403,6 +415,22 @@ fn move_to_trash_removes_file_from_disk_and_listing() {
 }
 
 /// Navigates into the corpus root through the sidebar locations row.
+/// Enters a subfolder row inside the current directory.
+fn enter_subfolder(harness: &mut Harness<'_, IpicApp>, name: &str) {
+    // Age out any recent click so the pair below counts as one double click.
+    harness.run_steps(700);
+    let position = harness
+        .query_all_by_label(name)
+        .filter(|node| node.rect().min.x > 240.0)
+        .min_by_key(|node| node.rect().min.x as i32)
+        .unwrap_or_else(|| panic!("folder {name:?} visible"))
+        .rect()
+        .center();
+    click_at(harness, position, egui::PointerButton::Primary);
+    click_at(harness, position, egui::PointerButton::Primary);
+    harness.run_steps(700);
+}
+
 fn enter_corpus_root(harness: &mut Harness<'_, IpicApp>, corpus: &std::path::Path) {
     // The app canonicalizes roots (e.g. /var → /private/var on macOS), so the
     // sidebar shows the canonical form.
@@ -425,7 +453,7 @@ fn new_folder_enter_creates_directory_on_disk() {
     harness.run_steps(2);
     enter_corpus_root(&mut harness, &world.corpus);
 
-    let new_folder_button = table_row_position(&harness, "＋ New Folder");
+    let new_folder_button = table_row_position(&harness, "New Folder");
     click_at(&mut harness, new_folder_button, egui::PointerButton::Primary);
     wait_for_label_contains(&mut harness, "Create");
     type_into_focused_edit(&mut harness, "Field Notes");
@@ -437,7 +465,7 @@ fn new_folder_enter_creates_directory_on_disk() {
     wait_for_label_contains(&mut harness, "Field Notes");
     wait_for_label_contains(&mut harness, "created “Field Notes”");
     assert!(
-        harness.query_all_by_label("＋ New Folder").next().is_some(),
+        harness.query_all_by_label("New Folder").next().is_some(),
         "toolbar must return to the collapsed New Folder button"
     );
 }
@@ -450,7 +478,7 @@ fn new_folder_create_button_creates_directory() {
     harness.run_steps(2);
     enter_corpus_root(&mut harness, &world.corpus);
 
-    let new_folder_button = table_row_position(&harness, "＋ New Folder");
+    let new_folder_button = table_row_position(&harness, "New Folder");
     click_at(&mut harness, new_folder_button, egui::PointerButton::Primary);
     wait_for_label_contains(&mut harness, "Create");
     type_into_focused_edit(&mut harness, "Sketches");
@@ -471,26 +499,26 @@ fn new_folder_escape_and_close_button_cancel_without_creating() {
     enter_corpus_root(&mut harness, &world.corpus);
 
     // Escape collapses the inline editor.
-    let new_folder_button = table_row_position(&harness, "＋ New Folder");
+    let new_folder_button = table_row_position(&harness, "New Folder");
     click_at(&mut harness, new_folder_button, egui::PointerButton::Primary);
     wait_for_label_contains(&mut harness, "Create");
     harness.key_press(egui::Key::Escape);
     harness.run_steps(2);
     wait_for_label_gone(&mut harness, "Create");
-    assert!(harness.query_all_by_label("＋ New Folder").next().is_some());
+    assert!(harness.query_all_by_label("New Folder").next().is_some());
 
     // The ✕ button collapses it too.
-    let new_folder_button = table_row_position(&harness, "＋ New Folder");
+    let new_folder_button = table_row_position(&harness, "New Folder");
     click_at(&mut harness, new_folder_button, egui::PointerButton::Primary);
     wait_for_label_contains(&mut harness, "Create");
     harness
-        .query_all_by_label("✕")
+        .query_all_by_label("Cancel")
         .next()
         .expect("close button visible")
         .click_accesskit();
     harness.run_steps(2);
     wait_for_label_gone(&mut harness, "Create");
-    assert!(harness.query_all_by_label("＋ New Folder").next().is_some());
+    assert!(harness.query_all_by_label("New Folder").next().is_some());
 
     assert!(
         !world.corpus.join("New Folder").exists(),
@@ -506,7 +534,7 @@ fn new_folder_in_library_view_shows_notice_instead_of_panicking() {
     harness.run_steps(2);
     // Library view (no current folder) is the default after launch.
 
-    let new_folder_button = table_row_position(&harness, "＋ New Folder");
+    let new_folder_button = table_row_position(&harness, "New Folder");
     click_at(&mut harness, new_folder_button, egui::PointerButton::Primary);
     wait_for_label_contains(&mut harness, "Create");
     type_into_focused_edit(&mut harness, "Nowhere");
@@ -515,7 +543,7 @@ fn new_folder_in_library_view_shows_notice_instead_of_panicking() {
 
     wait_for_label_contains(&mut harness, "open a folder first");
     assert!(
-        harness.query_all_by_label("＋ New Folder").next().is_some(),
+        harness.query_all_by_label("New Folder").next().is_some(),
         "toolbar must return to the collapsed New Folder button"
     );
     assert!(
@@ -532,6 +560,8 @@ fn details_panel_open_dispatches_through_open_handler_and_shows_text_preview() {
     let (mut harness, engine) = build_harness(&world, Arc::clone(&opened), Arc::clone(&revealed));
     wait_until_indexed(&engine);
     harness.run_steps(2);
+    enter_corpus_root(&mut harness, &world.corpus);
+    enter_subfolder(&mut harness, "documents");
 
     click_label(&mut harness, "mission-briefing.md", egui::PointerButton::Primary);
     // Wait for the extractor to land the first chunk in the catalog.

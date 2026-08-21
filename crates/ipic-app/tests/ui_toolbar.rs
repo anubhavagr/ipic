@@ -80,6 +80,19 @@ impl Drop for TestWorld {
     }
 }
 
+/// Library view shows root folders; toolbar tests operate inside the corpus.
+fn enter_corpus_root(harness: &mut Harness<'_, IpicApp>) {
+    // The sidebar location row navigates reliably regardless of layout.
+    let position = harness
+        .query_all_by_label_contains("Volume")
+        .next()
+        .expect("sidebar must list the corpus root")
+        .rect()
+        .center();
+    click_at(harness, position, egui::PointerButton::Primary);
+    harness.run_steps(3);
+}
+
 fn build_harness(world: &TestWorld) -> (Harness<'static, IpicApp>, Arc<Engine>) {
     let config = world.config();
     let engine = Engine::launch_with_data_dir(config.clone(), world.data_directory.clone()).unwrap();
@@ -113,18 +126,18 @@ fn wait_until_indexed(engine: &Arc<Engine>) {
 fn click_at(harness: &mut Harness<'_, IpicApp>, position: egui::Pos2, button: egui::PointerButton) {
     let modifiers = egui::Modifiers::default();
     harness.event(egui::Event::PointerMoved(position));
-    harness.run();
+    harness.run_steps(2);
     harness.event(egui::Event::PointerButton { pos: position, button, pressed: true, modifiers });
-    harness.run();
+    harness.run_steps(2);
     harness.event(egui::Event::PointerButton { pos: position, button, pressed: false, modifiers });
-    harness.run();
+    harness.run_steps(2);
 }
 
 /// Clicks and lets a further frame run so `logic()` can apply the pending
 /// listing refresh triggered by the click.
 fn click_and_settle(harness: &mut Harness<'_, IpicApp>, position: egui::Pos2) {
     click_at(harness, position, egui::PointerButton::Primary);
-    harness.run();
+    harness.run_steps(2);
 }
 
 /// Clicks the topmost exact-label match (see [`topmost_label_position`]).
@@ -185,7 +198,7 @@ fn click_sort_combo_item(harness: &mut Harness<'_, IpicApp>, combo_value: &str, 
     let combo_center = harness.get(by().value(combo_value)).rect().center();
     let combo_bottom = harness.get(by().value(combo_value)).rect().max.y;
     click_at(harness, combo_center, egui::PointerButton::Primary);
-    harness.run();
+    harness.run_steps(2);
     let matches: Vec<_> = harness
         .query_all_by_label(item)
         .filter(|node| node.rect().min.y > combo_bottom)
@@ -206,7 +219,7 @@ fn notices_contain(harness: &Harness<'_, IpicApp>, prefix: &str) -> bool {
 fn wait_for_notice(harness: &mut Harness<'_, IpicApp>, prefix: &str) {
     let deadline = Instant::now() + Duration::from_secs(15);
     while Instant::now() < deadline {
-        harness.run();
+        harness.run_steps(2);
         if notices_contain(harness, prefix) {
             return;
         }
@@ -220,7 +233,8 @@ fn kind_chip_filters_listing_and_clear_resets() {
     let world = TestWorld::create("chip");
     let (mut harness, engine) = build_harness(&world);
     wait_until_indexed(&engine);
-    harness.run();
+    harness.run_steps(2);
+    enter_corpus_root(&mut harness);
     assert_eq!(listing_names(&harness), NAME_ASC);
 
     click_topmost_label(&mut harness, "Audio");
@@ -235,7 +249,8 @@ fn kind_chips_combine() {
     let world = TestWorld::create("combine");
     let (mut harness, engine) = build_harness(&world);
     wait_until_indexed(&engine);
-    harness.run();
+    harness.run_steps(2);
+    enter_corpus_root(&mut harness);
 
     click_topmost_label(&mut harness, "Text");
     click_topmost_label(&mut harness, "Other");
@@ -247,7 +262,8 @@ fn name_header_click_toggles_direction() {
     let world = TestWorld::create("header");
     let (mut harness, engine) = build_harness(&world);
     wait_until_indexed(&engine);
-    harness.run();
+    harness.run_steps(2);
+    enter_corpus_root(&mut harness);
     assert_eq!(listing_names(&harness), NAME_ASC);
 
     // The active Name header carries the direction arrow.
@@ -267,7 +283,8 @@ fn sort_combo_reorders_for_each_key() {
     let world = TestWorld::create("combo");
     let (mut harness, engine) = build_harness(&world);
     wait_until_indexed(&engine);
-    harness.run();
+    harness.run_steps(2);
+    enter_corpus_root(&mut harness);
 
     // Kind (SQL orders by the kind token: audio < image < other < pdf < text).
     click_sort_combo_item(&mut harness, "Sort: Name", "Kind");
@@ -322,7 +339,8 @@ fn direction_button_flips_order() {
     let world = TestWorld::create("direction");
     let (mut harness, engine) = build_harness(&world);
     wait_until_indexed(&engine);
-    harness.run();
+    harness.run_steps(2);
+    enter_corpus_root(&mut harness);
 
     click_sort_combo_item(&mut harness, "Sort: Name", "Size");
     assert_eq!(
@@ -343,7 +361,8 @@ fn large_filter_shows_only_big_file() {
     let world = TestWorld::create("large");
     let (mut harness, engine) = build_harness(&world);
     wait_until_indexed(&engine);
-    harness.run();
+    harness.run_steps(2);
+    enter_corpus_root(&mut harness);
 
     click_topmost_label(&mut harness, "Large");
     assert!(harness.state().browse.large_files_only);
@@ -356,7 +375,8 @@ fn recent_toggle_sets_recency_window() {
     let world = TestWorld::create("recent");
     let (mut harness, engine) = build_harness(&world);
     wait_until_indexed(&engine);
-    harness.run();
+    harness.run_steps(2);
+    enter_corpus_root(&mut harness);
 
     click_topmost_label(&mut harness, "Recent");
     let browse = &harness.state().browse;
@@ -374,7 +394,8 @@ fn empty_state_message_when_filters_match_nothing() {
     let world = TestWorld::create("empty");
     let (mut harness, engine) = build_harness(&world);
     wait_until_indexed(&engine);
-    harness.run();
+    harness.run_steps(2);
+    enter_corpus_root(&mut harness);
 
     // PDF + Large matches nothing (the only PDF is small).
     click_topmost_label(&mut harness, "PDF");
@@ -392,7 +413,8 @@ fn settings_window_opens_lists_roots_and_closes() {
     let world = TestWorld::create("settings");
     let (mut harness, engine) = build_harness(&world);
     wait_until_indexed(&engine);
-    harness.run();
+    harness.run_steps(2);
+    enter_corpus_root(&mut harness);
 
     click_topmost_label(&mut harness, "⚙");
     assert!(harness.state().show_settings, "gear button must open the settings window");
@@ -414,7 +436,7 @@ fn type_into_settings_root_edit(harness: &mut Harness<'_, IpicApp>, text: &str) 
         .center();
     click_and_settle(harness, edit_center);
     harness.event(egui::Event::Text(text.to_string()));
-    harness.run();
+    harness.run_steps(2);
 }
 
 #[test]
@@ -424,7 +446,8 @@ fn settings_add_root_accepts_valid_and_ignores_invalid_path() {
     std::fs::create_dir_all(&extra_root).unwrap();
     let (mut harness, engine) = build_harness(&world);
     wait_until_indexed(&engine);
-    harness.run();
+    harness.run_steps(2);
+    enter_corpus_root(&mut harness);
 
     click_topmost_label(&mut harness, "⚙");
 
@@ -449,7 +472,8 @@ fn settings_rescan_now_triggers_scan_and_closes() {
     let world = TestWorld::create("rescan");
     let (mut harness, engine) = build_harness(&world);
     wait_until_indexed(&engine);
-    harness.run();
+    harness.run_steps(2);
+    enter_corpus_root(&mut harness);
 
     click_topmost_label(&mut harness, "⚙");
     click_topmost_label(&mut harness, "Rescan now");
@@ -462,9 +486,10 @@ fn toolbar_rescan_button_announces_scan() {
     let world = TestWorld::create("toolbar-rescan");
     let (mut harness, engine) = build_harness(&world);
     wait_until_indexed(&engine);
-    harness.run();
+    harness.run_steps(2);
+    enter_corpus_root(&mut harness);
 
-    click_topmost_label(&mut harness, "⟳");
+    click_topmost_label(&mut harness, "\u{e5d5}");
     assert!(notices_contain(&harness, "rescan started"));
     wait_for_notice(&mut harness, "scan:");
 }
@@ -474,7 +499,8 @@ fn status_bar_shows_file_and_vector_counts() {
     let world = TestWorld::create("status");
     let (mut harness, engine) = build_harness(&world);
     wait_until_indexed(&engine);
-    harness.run();
+    harness.run_steps(2);
+    enter_corpus_root(&mut harness);
 
     assert!(harness.query_by_label("● ready").is_some(), "idle status must be shown");
     assert!(harness.query_by_label("6 files").is_some(), "file count must be shown");

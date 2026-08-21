@@ -29,6 +29,7 @@ impl TestWorld {
             "The orbital rendezvous plan covers launch windows and docking maneuvers.",
         )
         .unwrap();
+        std::fs::write(documents.join("grocery-run.txt"), "oat milk and cardamom").unwrap();
         let png_header: [u8; 8] = [0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A];
         std::fs::write(corpus.join("photos/beach-sunset.png"), png_header).unwrap();
         Self { corpus, data_directory: base.join("data") }
@@ -96,6 +97,34 @@ fn click_at(harness: &mut Harness<'_, IpicApp>, position: egui::Pos2, button: eg
 }
 
 /// Gives the top-bar search TextEdit keyboard focus (AccessKit focus request).
+/// Library view shows root folders; file tests enter the corpus root first.
+fn enter_corpus_root(harness: &mut Harness<'_, IpicApp>, corpus: &std::path::Path) {
+    let canonical = std::fs::canonicalize(corpus).unwrap_or_else(|_| corpus.to_path_buf());
+    let root_row = harness
+        .query_all_by_label_contains(&format!("Volume  {}", canonical.display()))
+        .next()
+        .expect("sidebar must list the corpus root")
+        .rect()
+        .center();
+    click_at(harness, root_row, egui::PointerButton::Primary);
+    harness.run_steps(3);
+}
+
+/// Enter the documents subfolder (double-click its table row).
+fn enter_documents(harness: &mut Harness<'_, IpicApp>) {
+    let position = harness
+        .query_all_by_label("documents")
+        .filter(|node| node.rect().min.x > 240.0)
+        .min_by_key(|node| node.rect().min.x as i32)
+        .expect("documents folder visible")
+        .rect()
+        .center();
+    harness.run_steps(700);
+    click_at(harness, position, egui::PointerButton::Primary);
+    click_at(harness, position, egui::PointerButton::Primary);
+    harness.run_steps(700);
+}
+
 fn focus_search_box(harness: &mut Harness<'_, IpicApp>) {
     harness.get(by().role(Role::TextInput)).focus();
     harness.run();
@@ -126,7 +155,7 @@ fn wait_for_search_to_finish(harness: &mut Harness<'_, IpicApp>) {
 }
 
 fn search_button_position(harness: &Harness<'_, IpicApp>) -> egui::Pos2 {
-    harness.get_by_label("Search").rect().center()
+    harness.get_by_label("\u{e8b6}").rect().center()
 }
 
 #[test]
@@ -185,7 +214,9 @@ fn typing_filters_browse_listing_live() {
     let world = TestWorld::create("live-filter");
     let (mut harness, engine) = build_harness(&world, Arc::new(Mutex::new(Vec::new())));
     wait_until_indexed(&engine);
-    harness.run();
+    harness.run_steps(2);
+    enter_corpus_root(&mut harness, &world.corpus);
+    enter_documents(&mut harness);
     let unfiltered_count = harness.state().browse.listing.len();
     assert!(unfiltered_count >= 2, "corpus must show both files, got {unfiltered_count}");
     focus_search_box(&mut harness);
@@ -208,7 +239,9 @@ fn escape_clears_search_back_to_browse() {
     let world = TestWorld::create("escape-clears");
     let (mut harness, engine) = build_harness(&world, Arc::new(Mutex::new(Vec::new())));
     wait_until_indexed(&engine);
-    harness.run();
+    harness.run_steps(2);
+    enter_corpus_root(&mut harness, &world.corpus);
+    enter_documents(&mut harness);
     focus_search_box(&mut harness);
     type_query(&mut harness, "rendezvous");
     harness.key_press(egui::Key::Enter);
@@ -278,4 +311,51 @@ fn command_f_focuses_search_box() {
     // The focus request is consumed while drawing; the next frame records it.
     harness.run();
     assert!(harness.state().search_box_has_focus, "⌘F must focus the search box");
+}
+
+#[test]
+fn escape_returns_to_directory_before_search() {
+    let world = TestWorld::create("esc-return");
+    let (mut harness, engine) = build_harness(&world, Arc::new(Mutex::new(Vec::new())));
+    wait_until_indexed(&engine);
+    harness.run_steps(2);
+    // Library view shows the corpus root; enter it, then its documents folder.
+    let corpus_label = harness
+        .query_all_by_label("corpus")
+        .next()
+        .expect("corpus root visible in library view")
+        .rect()
+        .center();
+    for _ in 0..2 {
+        click_at(&mut harness, corpus_label, egui::PointerButton::Primary);
+    }
+    // Let the double-click window close before the next pair.
+    harness.run_steps(700);
+    let documents_label = harness
+        .query_all_by_label("documents")
+        .next()
+        .expect("documents folder visible inside corpus")
+        .rect()
+        .center();
+    for _ in 0..2 {
+        click_at(&mut harness, documents_label, egui::PointerButton::Primary);
+    }
+    harness.run_steps(700);
+    let before = harness.state().current_directory.clone();
+    assert!(before.as_ref().is_some_and(|dir| dir.path.ends_with("documents")), "entered documents");
+    // Run a search from inside it.
+    focus_search_box(&mut harness);
+    type_query(&mut harness, "orbital rendezvous");
+    harness.key_press(egui::Key::Enter);
+    wait_for_search_to_finish(&mut harness);
+    assert!(!harness.state().active_query.is_empty());
+    // Esc must restore the documents folder, not the library view.
+    harness.key_press(egui::Key::Escape);
+    harness.run_steps(3);
+    let restored = harness.state().current_directory.clone();
+    assert!(
+        restored.as_ref().is_some_and(|dir| dir.path.ends_with("documents")),
+        "Esc must return to the pre-search directory, got {restored:?}"
+    );
+    assert!(harness.state().active_query.is_empty());
 }

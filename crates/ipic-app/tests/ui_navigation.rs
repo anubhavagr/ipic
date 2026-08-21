@@ -255,14 +255,14 @@ fn back_and_forward_traverse_history() {
     wait_until_indexed(&engine);
     harness.run();
     enter_corpus_root(&mut harness);
-    let back_button = top_bar_button(&harness, "‹");
+    let back_button = top_bar_button(&harness, "\u{e5c3}");
     click_at(&mut harness, back_button);
     assert!(
         current_directory_path(&harness).is_none(),
         "back must return to the previous view (library)"
     );
     assert_eq!(harness.state().forward_history.len(), 1);
-    let forward_button = top_bar_button(&harness, "›");
+    let forward_button = top_bar_button(&harness, "\u{e5c4}");
     click_at(&mut harness, forward_button);
     let current = current_directory_path(&harness).unwrap_or_default();
     assert!(
@@ -279,7 +279,7 @@ fn up_button_navigates_to_parent_then_library() {
     wait_until_indexed(&engine);
     harness.run();
     enter_documents_via_table(&mut harness);
-    let up_button = top_bar_button(&harness, "↑");
+    let up_button = top_bar_button(&harness, "\u{e5d8}");
     click_at(&mut harness, up_button);
     let current = current_directory_path(&harness).unwrap_or_default();
     assert!(
@@ -299,7 +299,7 @@ fn up_from_library_view_is_safe() {
     let (mut harness, engine) = build_harness(&world);
     wait_until_indexed(&engine);
     harness.run();
-    let up_button = top_bar_button(&harness, "↑");
+    let up_button = top_bar_button(&harness, "\u{e5d8}");
     click_at(&mut harness, up_button);
     assert!(
         current_directory_path(&harness).is_none(),
@@ -396,8 +396,12 @@ fn navigation_clears_stale_selection() {
     let (mut harness, engine) = build_harness(&world);
     wait_until_indexed(&engine);
     harness.run();
-    // Library listing: [alpha-zebra.md, beach-sunset.png, deep-thoughts.txt,
-    // mission-briefing.md]; select the second row.
+    // Library view shows folders; open the corpus root first.
+    let corpus_row = label_center(&harness, "corpus", |rect: &egui::Rect| rect.min.x > 240.0);
+    double_click_at(&mut harness, corpus_row);
+    // Enter photos, then select the image row inside it.
+    let photos_row = table_row_position(&harness, "photos");
+    double_click_at(&mut harness, photos_row);
     let beach_sunset_row = table_row_position(&harness, "beach-sunset.png");
     click_at(&mut harness, beach_sunset_row);
     assert_eq!(selected_file_name(&harness).as_deref(), Some("beach-sunset.png"));
@@ -419,7 +423,7 @@ fn navigation_clears_stale_selection() {
     let briefing_row = table_row_position(&harness, "mission-briefing.md");
     click_at(&mut harness, briefing_row);
     assert_eq!(selected_file_name(&harness).as_deref(), Some("mission-briefing.md"));
-    let back_button = top_bar_button(&harness, "‹");
+    let back_button = top_bar_button(&harness, "\u{e5c3}");
     click_at(&mut harness, back_button);
     harness.run();
     assert!(
@@ -427,4 +431,29 @@ fn navigation_clears_stale_selection() {
         "back must clear the selection, got {:?}",
         selected_file_name(&harness)
     );
+}
+
+#[test]
+fn library_view_shows_root_folders_not_flat_dump() {
+    let world = TestWorld::create("library-roots");
+    let (mut harness, engine) = build_harness(&world);
+    wait_until_indexed(&engine);
+    harness.run_steps(2);
+    // Library lists the corpus root itself — a real folder row.
+    assert!(
+        harness.query_all_by_label("corpus").next().is_some(),
+        "library view must show root folders"
+    );
+    // Deep files are not dumped at top level.
+    assert!(
+        harness.query_all_by_label("mission-briefing.md").next().is_none(),
+        "library view must not flatten nested files"
+    );
+    // Entering the root reveals its exact structure: folders first.
+    let corpus = label_center(&harness, "corpus", |rect: &egui::Rect| rect.min.x > 240.0);
+    double_click_at(&mut harness, corpus);
+    harness.run_steps(700);
+    assert!(current_directory_path(&harness).is_some_and(|path| path.ends_with("corpus")));
+    assert!(harness.query_all_by_label("documents").next().is_some());
+    assert!(harness.query_all_by_label("photos").next().is_some());
 }
