@@ -163,8 +163,15 @@ pub struct Config {
     /// GPU (Metal) whisper: very fast but transcriptions serialize on one state.
     #[serde(default)]
     pub whisper_use_gpu: bool,
+    /// "neural" (default) or "hashing" (offline lexical fallback, no download).
+    #[serde(default = "default_embedder")]
+    pub embedder: String,
     pub embed_batch: usize,
     pub max_text_mb: usize,
+}
+
+fn default_embedder() -> String {
+    "neural".into()
 }
 
 impl Default for Config {
@@ -178,6 +185,7 @@ impl Default for Config {
             whisper_model: "base.en-q5_1".into(),
             whisper_workers: 3,
             whisper_use_gpu: false,
+            embedder: default_embedder(),
             embed_batch: 64,
             max_text_mb: 8,
         }

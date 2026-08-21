@@ -8,6 +8,9 @@ use egui::Ui;
 use ipic_core::{Config, DirRow, FileRow};
 use ipic_rag::{Engine, EngineEvent, SearchOutcome};
 use std::collections::HashSet;
+
+/// Injectable file-open action (tests capture requests instead of spawning).
+pub type OpenHandler = std::sync::Arc<dyn Fn(&std::path::Path) + Send + Sync>;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -32,6 +35,8 @@ pub struct IpicApp {
     pub last_status_refresh: Instant,
     /// Search box contents; drives name filtering and semantic search.
     pub search_edit: String,
+    /// Injection point for tests: captures open requests instead of spawning.
+    pub open_handler: Option<OpenHandler>,
     /// Whether the search box currently holds keyboard focus.
     pub search_box_has_focus: bool,
     /// Active unified-search query (empty = browsing mode).
@@ -60,6 +65,7 @@ impl IpicApp {
             show_settings: false,
             last_status_refresh: Instant::now(),
             search_edit: String::new(),
+            open_handler: None,
             search_box_has_focus: false,
             active_query: String::new(),
         }
@@ -224,9 +230,17 @@ impl IpicApp {
         self.selected_file.as_ref().map(|(_, path)| path.clone())
     }
 
+    /// Opens a file through the injectable handler (tests) or the OS.
+    pub fn dispatch_open(&self, path: &std::path::Path) {
+        match &self.open_handler {
+            Some(handler) => handler(path),
+            None => crate::actions::open_file(path),
+        }
+    }
+
     pub fn open_selected(&mut self) {
         if let Some(path) = self.selected_path() {
-            crate::actions::open_file(std::path::Path::new(&path));
+            self.dispatch_open(std::path::Path::new(&path));
         }
     }
 

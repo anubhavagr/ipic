@@ -21,7 +21,7 @@ pub fn draw(ui: &mut Ui, app: &mut IpicApp) {
         ui.add_space(8.0);
         ui.horizontal(|ui| {
             if ui.button("Open").clicked() {
-                crate::actions::open_file(std::path::Path::new(&path));
+                app.dispatch_open(std::path::Path::new(&path));
             }
             if ui.button("Reveal").clicked() {
                 crate::actions::reveal_in_file_manager(std::path::Path::new(&path));

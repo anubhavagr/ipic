@@ -90,30 +90,38 @@ impl Engine {
         }
     }
 
-    /// Boots the engine: catalog + embedder + vector store, then background threads.
+    /// Boots the engine against the default user data directory.
     pub fn launch(config: Config) -> Result<Arc<Engine>> {
-        let core_count = std::thread::available_parallelism().map(|count| count.get()).unwrap_or(4);
-        let catalog = Arc::new(Catalog::open(&ipic_core::data_dir().join("catalog.db"))?);
+        Self::launch_with_data_dir(config, ipic_core::data_dir())
+    }
 
-        // Embedder: neural first; deterministic hashing fallback keeps search alive offline.
-        // Leave headroom for extraction/whisper workers: ONNX's intra-op pool
-        // saturates cores per batch, and an exactly-core-sized pool plus the
-        // other pools oversubscribes and can stall inside ORT's spin-waits.
-        let (embedder, neural_embedder, notice) = match NeuralEmbedder::load(
-            ipic_core::data_dir().join("models").join("embeddings"),
-            true,
-            (core_count / 2).max(2),
-        ) {
-            Ok(neural) => (Arc::new(neural) as Arc<dyn TextEmbedder>, true, None),
-            Err(error) => (
-                Arc::new(HashingEmbedder) as Arc<dyn TextEmbedder>,
-                false,
-                Some(format!("neural embedder unavailable ({error}); using lexical fallback")),
-            ),
+    /// Boots the engine against an explicit data directory (tests, portable installs).
+    pub fn launch_with_data_dir(config: Config, data_directory: PathBuf) -> Result<Arc<Engine>> {
+        let core_count = std::thread::available_parallelism().map(|count| count.get()).unwrap_or(4);
+        let catalog = Arc::new(Catalog::open(&data_directory.join("catalog.db"))?);
+
+        // Embedder: neural by default; hashing override (or offline failure) keeps
+        // search functional without any model download. The intra-op pool keeps
+        // headroom for extraction/whisper workers so ORT spin-waits never starve.
+        let (embedder, neural_embedder, notice) = if config.embedder == "hashing" {
+            (Arc::new(HashingEmbedder) as Arc<dyn TextEmbedder>, false, None)
+        } else {
+            match NeuralEmbedder::load(
+                data_directory.join("models").join("embeddings"),
+                true,
+                (core_count / 2).max(2),
+            ) {
+                Ok(neural) => (Arc::new(neural) as Arc<dyn TextEmbedder>, true, None),
+                Err(error) => (
+                    Arc::new(HashingEmbedder) as Arc<dyn TextEmbedder>,
+                    false,
+                    Some(format!("neural embedder unavailable ({error}); using lexical fallback")),
+                ),
+            }
         };
 
         let (mut vector_store, compatible) =
-            VectorStore::open(&ipic_core::data_dir(), embedder.dim(), embedder.model_id())?;
+            VectorStore::open(&data_directory, embedder.dim(), embedder.model_id())?;
         if !compatible {
             // Embedder changed: wipe derived data and reindex everything.
             catalog.clear_chunks()?;
@@ -230,6 +238,9 @@ impl Engine {
     /// Loads (downloading once if needed) the whisper model; guarded by a mutex
     /// so concurrent workers share a single download/load.
     pub fn ensure_transcriber(&self) -> Result<Arc<Transcriber>> {
+        if self.config.whisper_model == "none" {
+            return Err(anyhow::anyhow!("whisper disabled in configuration"));
+        }
         let mut slot = self.transcriber.lock().unwrap();
         if let Some(transcriber) = slot.as_ref() {
             return Ok(Arc::clone(transcriber));
@@ -597,6 +608,9 @@ fn spawn_progress_reporter(engine: &Arc<Engine>) {
 }
 
 fn spawn_transcriber_initializer(engine: &Arc<Engine>) {
+    if engine.config.whisper_model == "none" {
+        return; // whisper explicitly disabled (tests, text-only deployments)
+    }
     let worker_engine = Arc::clone(engine);
     let handle = std::thread::Builder::new().name("ipic-whisper-init".into()).spawn(move || {
         let engine = worker_engine;

@@ -113,7 +113,7 @@ fn draw_result_card(ui: &mut Ui, app: &mut IpicApp, position: usize, hit: &Searc
                 ui.add_space(4.0);
                 ui.horizontal(|ui| {
                     if ui.small_button("Open").clicked() {
-                        crate::actions::open_file(std::path::Path::new(&hit.path));
+                        app.dispatch_open(std::path::Path::new(&hit.path));
                     }
                     if ui.small_button("Reveal").clicked() {
                         crate::actions::reveal_in_file_manager(std::path::Path::new(&hit.path));
@@ -132,7 +132,7 @@ fn draw_result_card(ui: &mut Ui, app: &mut IpicApp, position: usize, hit: &Searc
         && ui.input(|input| input.key_pressed(egui::Key::Enter))
         && app.results.selected_index == Some(position);
     if enter_opens {
-        crate::actions::open_file(std::path::Path::new(&hit.path));
+        app.dispatch_open(std::path::Path::new(&hit.path));
     }
 }
 
@@ -140,13 +140,13 @@ fn select_hit(app: &mut IpicApp, position: usize, hit: &SearchHit, also_open: bo
     app.results.selected_index = Some(position);
     app.selected_file = Some((hit.file.clone(), hit.path.clone()));
     if also_open {
-        crate::actions::open_file(std::path::Path::new(&hit.path));
+        app.dispatch_open(std::path::Path::new(&hit.path));
     }
 }
 
 fn result_context_menu(ui: &mut Ui, app: &mut IpicApp, hit: &SearchHit) {
     if ui.button("Open").clicked() {
-        crate::actions::open_file(std::path::Path::new(&hit.path));
+        app.dispatch_open(std::path::Path::new(&hit.path));
         ui.close();
     }
     if ui.button("Reveal in file manager").clicked() {
