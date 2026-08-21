@@ -120,7 +120,8 @@ impl Transcriber {
 }
 
 pub fn transcribe_with_state(state: &mut WhisperState, pcm: &[f32], threads: i32) -> Result<String> {
-    let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
+    // Beam search: materially fewer word errors than greedy at modest cost.
+    let mut params = FullParams::new(SamplingStrategy::BeamSearch { beam_size: 5, patience: -1.0 });
     params.set_n_threads(threads);
     params.set_language(Some("en"));
     params.set_print_progress(false);

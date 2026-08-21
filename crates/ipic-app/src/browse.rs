@@ -290,7 +290,6 @@ fn draw_table(ui: &mut Ui, app: &mut IpicApp) {
         .column(Column::exact(78.0))
         .column(Column::exact(120.0))
         .column(Column::exact(64.0))
-        .column(Column::exact(84.0))
         .min_scrolled_height(available_height);
     table
         .header(28.0, |mut header| {
@@ -309,7 +308,6 @@ fn draw_table(ui: &mut Ui, app: &mut IpicApp) {
             header.col(|ui| {
                 sortable_header(ui, app, SortKey::Duration, "Length");
             });
-            header.col(|_ui| {});
         })
         .body(|body| {
             body.rows(row_height, listing_count, |mut row| {
@@ -357,7 +355,7 @@ fn draw_table(ui: &mut Ui, app: &mut IpicApp) {
                                 &mut cell_response,
                             );
                         });
-                        for _ in 0..4 {
+                        for _ in 0..3 {
                             row.col(|_ui| {});
                         }
                         let Some(interact) = cell_response else { return };
@@ -463,37 +461,52 @@ fn draw_file_row(row: &mut egui_extras::TableRow<'_, '_>, app: &mut IpicApp, fil
             None => response,
         });
     };
+    let row_id = egui::Id::new(("file-row", file.id));
     row.col(|ui| {
         ui.horizontal(|ui| {
-            extend(clickable_label(ui, kind_glyph(file.kind)), &mut cell_response);
+            draw_status_dot(ui, file);
             extend(
-                clickable_label(ui, RichText::new(&file.name).color(theme::TEXT_PRIMARY)),
+                clickable_label_stable(ui, kind_glyph(file.kind), row_id.with("glyph")),
+                &mut cell_response,
+            );
+            extend(
+                clickable_label_stable(
+                    ui,
+                    RichText::new(&file.name).color(theme::TEXT_PRIMARY),
+                    row_id.with("name"),
+                ),
                 &mut cell_response,
             );
         });
     });
     row.col(|ui| {
         extend(
-            clickable_label(ui, RichText::new(file.kind.label()).color(theme::TEXT_DIM).small()),
-            &mut cell_response,
-        );
-    });
-    row.col(|ui| {
-        extend(
-            clickable_label(
+            clickable_label_stable(
                 ui,
-                RichText::new(ipic_core::util::format_size(file.size)).color(theme::TEXT_DIM).monospace(),
+                RichText::new(file.kind.label()).color(theme::TEXT_DIM).small(),
+                row_id.with("kind"),
             ),
             &mut cell_response,
         );
     });
     row.col(|ui| {
         extend(
-            clickable_label(
+            clickable_label_stable(
+                ui,
+                RichText::new(ipic_core::util::format_size(file.size)).color(theme::TEXT_DIM).monospace(),
+                row_id.with("size"),
+            ),
+            &mut cell_response,
+        );
+    });
+    row.col(|ui| {
+        extend(
+            clickable_label_stable(
                 ui,
                 RichText::new(ipic_core::util::format_local_timestamp(file.mtime))
                     .color(theme::TEXT_DIM)
                     .small(),
+                row_id.with("modified"),
             ),
             &mut cell_response,
         );
@@ -501,19 +514,11 @@ fn draw_file_row(row: &mut egui_extras::TableRow<'_, '_>, app: &mut IpicApp, fil
     row.col(|ui| {
         let text = file.duration_secs.map(ipic_core::util::format_duration).unwrap_or_default();
         extend(
-            clickable_label(ui, RichText::new(text).color(theme::TEXT_DIM).monospace()),
-            &mut cell_response,
-        );
-    });
-    row.col(|ui| {
-        let (color, status) = match file.rag {
-            RagStatus::Done => (theme::SUCCESS, "indexed"),
-            RagStatus::Busy => (theme::WARNING, "working"),
-            RagStatus::Failed => (theme::DANGER, "failed"),
-            RagStatus::Pending => (theme::TEXT_DIM, "queued"),
-        };
-        extend(
-            clickable_label(ui, RichText::new(status).color(color).small()),
+            clickable_label_stable(
+                ui,
+                RichText::new(text).color(theme::TEXT_DIM).monospace(),
+                row_id.with("duration"),
+            ),
             &mut cell_response,
         );
     });
@@ -612,7 +617,32 @@ pub fn kind_glyph(kind: FileKind) -> RichText {
     RichText::new(glyph)
 }
 
+/// Index-status dot: green = indexed, red = failed, amber = working,
+/// faint = queued; non-RAG kinds (archives, binaries) draw nothing.
+fn draw_status_dot(ui: &mut Ui, file: &FileRow) {
+    let color = match file.rag {
+        RagStatus::Done => Some(theme::SUCCESS),
+        RagStatus::Failed => Some(theme::DANGER),
+        RagStatus::Busy => Some(theme::WARNING),
+        RagStatus::Pending => file.kind.is_rag().then_some(theme::TEXT_DIM),
+    };
+    let Some(color) = color else { return };
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(10.0, 10.0), egui::Sense::hover());
+    ui.painter().circle_filled(rect.center(), 3.0, color);
+}
+
 /// A label that participates in row clicking (plain labels ignore pointers).
 fn clickable_label(ui: &mut Ui, contents: impl Into<egui::WidgetText>) -> egui::Response {
     ui.add(egui::Label::new(contents).sense(egui::Sense::click()))
+}
+
+/// Stable-id variant: keeps context menus and interaction state alive across
+/// layout shifts (e.g. the details panel appearing when a row is selected).
+fn clickable_label_stable(
+    ui: &mut Ui,
+    contents: impl Into<egui::WidgetText>,
+    stable_id: egui::Id,
+) -> egui::Response {
+    ui.push_id(stable_id, |ui| ui.add(egui::Label::new(contents).sense(egui::Sense::click())))
+        .inner
 }

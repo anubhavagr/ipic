@@ -28,8 +28,10 @@ audio recordings and videos — no cloud, no API calls, no telemetry.
   **filename** match — merged with weighted reciprocal rank fusion.
   Speech inside audio/video is transcribed at index time; images are indexed
   by filename + folder context. Typical latency: single-digit milliseconds.
-- **Spoken queries** — record from the microphone; whisper (base.en, q5) transcribes
-  locally and the transcript drives the same hybrid search.
+- **Spoken queries** — record from the microphone; whisper (small.en, q5,
+  beam-search decoding) transcribes locally. Queries are answered by BOTH the
+  transcript's hybrid lanes AND direct audio-to-audio matching against indexed
+  recordings (acoustic fingerprints: FFT spectral-shape + flux vectors, ~ms search).
 - **Audio/video understanding** — speech in audio and video files is transcribed
   at index time (ffmpeg decode → whisper), so lectures, podcasts and talks become
   full-text + semantically searchable.
@@ -106,8 +108,10 @@ worker counts, GPU toggle). Data: `~/.ipic/catalog.db` (SQLite/FTS5) and
 
 ## Notes & trade-offs
 
-- Audio/video search covers **speech**. Non-speech audio (music, ambience) is
-  metadata-only; a CLAP-style audio encoder is the natural extension.
+- Audio/video search covers **speech** via transcripts, plus **audio-to-audio**
+  similarity through acoustic fingerprints (same recording, re-encodes, similar
+  passages). True semantic understanding of non-speech audio (music mood,
+  ambience) remains future work.
 - GPU (Metal) whisper is available (`whisper_use_gpu = true`): very fast, but
   transcriptions serialize on a single state — the default CPU path
   (Accelerate BLAS, ~35× realtime) parallelizes across workers.

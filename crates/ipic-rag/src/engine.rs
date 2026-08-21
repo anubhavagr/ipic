@@ -4,6 +4,7 @@
 
 use crate::embed::{HashingEmbedder, NeuralEmbedder, TextEmbedder};
 use crate::extract;
+use crate::fingerprint::{self, FINGERPRINT_DIM};
 use crate::search::{self, SearchOutcome};
 use crate::transcribe::{self, Transcriber};
 use crate::vector_store::VectorStore;
@@ -11,6 +12,7 @@ use anyhow::Result;
 use crossbeam_channel::{bounded, unbounded, Receiver, Sender};
 use ipic_core::catalog::{Catalog, NewFile};
 use ipic_core::watcher::{self, WatchUpdate};
+use crate::search::RRF_CONSTANT;
 use ipic_core::walker::{self, WalkItem};
 use ipic_core::{Config, FileKind, RagStatus};
 use std::collections::HashMap;
@@ -56,6 +58,9 @@ struct IndexingJob {
     kind: FileKind,
 }
 
+/// Reciprocal-rank weight of the acoustic (audio-to-audio) lane.
+const ACOUSTIC_WEIGHT: f32 = 0.9;
+
 pub struct Engine {
     pub catalog: Arc<Catalog>,
     pub config: Config,
@@ -66,6 +71,8 @@ pub struct Engine {
     pub events: Receiver<EngineEvent>,
     event_sender: Sender<EngineEvent>,
     vector_store: Arc<Mutex<VectorStore>>,
+    /// Acoustic fingerprints for audio-to-audio matching.
+    audio_store: Arc<Mutex<VectorStore>>,
     embedder: Arc<dyn TextEmbedder>,
     neural_embedder: bool,
     transcriber: Arc<Mutex<Option<Arc<Transcriber>>>>,
@@ -134,6 +141,16 @@ impl Engine {
             vector_store.free(&orphan_slots)?;
         }
 
+        // Acoustic fingerprints live in their own quantized store.
+        let (mut audio_store, audio_compatible) = VectorStore::open(
+            &data_directory.join("audio-fingerprints"),
+            FINGERPRINT_DIM,
+            "audio-fingerprint-v1",
+        )?;
+        if !audio_compatible && let Ok(orphan_slots) = catalog.drain_fingerprints() {
+            audio_store.free(&orphan_slots)?;
+        }
+
         let (event_sender, events) = bounded(1024);
         let engine = Arc::new(Engine {
             catalog: Arc::clone(&catalog),
@@ -143,6 +160,7 @@ impl Engine {
             events,
             event_sender: event_sender.clone(),
             vector_store: Arc::new(Mutex::new(vector_store)),
+            audio_store: Arc::new(Mutex::new(audio_store)),
             embedder: Arc::clone(&embedder),
             neural_embedder,
             transcriber: Arc::new(Mutex::new(None)),
@@ -187,6 +205,7 @@ impl Engine {
         let scan_finished = Arc::clone(&self.scan_finished);
         let catalog = Arc::clone(&self.catalog);
         let vector_store = Arc::clone(&self.vector_store);
+        let audio_store = Arc::clone(&self.audio_store);
         let event_sender = self.event_sender.clone();
         let roots = self.current_roots();
         let skip_names = self.config.skip_dir_names.clone();
@@ -199,6 +218,9 @@ impl Engine {
             if let Ok(freed_slots) = catalog.finish_full_scan() {
                 vector_store.lock().unwrap().free(&freed_slots).ok();
             }
+            if let Ok(freed_fingerprints) = catalog.drain_orphan_fingerprints() {
+                audio_store.lock().unwrap().free(&freed_fingerprints).ok();
+            }
             engine_scanning.store(false, Ordering::Release);
             scan_finished.store(true, Ordering::Release);
             let _ = event_sender.send(EngineEvent::ScanFinished {
@@ -208,7 +230,7 @@ impl Engine {
             });
             let _ = event_sender.send(EngineEvent::CatalogChanged);
             if !stop.load(Ordering::Relaxed) {
-                start_watcher(&catalog, &roots, &vector_store, &event_sender, &stop);
+                start_watcher(&catalog, &roots, &vector_store, &audio_store, &event_sender, &stop);
             }
         }).ok();
     }
@@ -230,10 +252,54 @@ impl Engine {
     }
 
     /// Audio query: transcribe locally with whisper, then hybrid search.
+    /// Audio query with two fused signal groups: acoustic similarity against
+    /// every indexed recording (audio-to-audio match) plus the transcript's
+    /// usual hybrid lanes (semantic + keyword + filename).
     pub fn spoken_query_search(&self, audio_pcm: &[f32], limit: usize) -> Result<SearchOutcome> {
         let transcript = self.transcribe_pcm(audio_pcm)?;
-        let mut outcome = self.semantic_search(&transcript, limit)?;
-        outcome.interpreted_query = (!transcript.is_empty()).then_some(transcript);
+        let mut outcome = if transcript.trim().is_empty() {
+            SearchOutcome {
+                hits: Vec::new(),
+                elapsed_millis: 0.0,
+                interpreted_query: None,
+                vector_count: 0,
+            }
+        } else {
+            self.semantic_search(&transcript, limit)?
+        };
+        outcome.interpreted_query = (!transcript.trim().is_empty()).then_some(transcript);
+
+        // Acoustic lane: reciprocal-rank contribution, merged by file.
+        let acoustic_matches = self.audio_match(audio_pcm);
+        if !acoustic_matches.is_empty() {
+            let connection = self.catalog.reader()?;
+            let mut acoustic_scores: HashMap<i64, f32> = HashMap::new();
+            for (rank, (file_id, _similarity)) in acoustic_matches.iter().enumerate() {
+                acoustic_scores.insert(*file_id, ACOUSTIC_WEIGHT / (RRF_CONSTANT + rank as f32));
+            }
+            let audio_file_ids: Vec<i64> = acoustic_matches.iter().map(|(file_id, _)| *file_id).collect();
+            let hydrated = self.catalog.files_by_ids(&connection, &audio_file_ids)?;
+            let mut merged = outcome.hits;
+            for (file_row, path) in hydrated {
+                let acoustic = acoustic_scores.get(&file_row.id).copied().unwrap_or(0.0);
+                match merged.iter_mut().find(|hit| hit.file.id == file_row.id) {
+                    Some(hit) => {
+                        hit.score += acoustic;
+                        hit.sources.acoustic = true;
+                    }
+                    None => merged.push(crate::search::SearchHit {
+                        file: file_row,
+                        path,
+                        snippet: "acoustic match".into(),
+                        score: acoustic,
+                        sources: crate::search::MatchSources { acoustic: true, ..Default::default() },
+                    }),
+                }
+            }
+            merged.sort_by(|left, right| right.score.total_cmp(&left.score));
+            merged.truncate(limit);
+            outcome.hits = merged;
+        }
         Ok(outcome)
     }
 
@@ -318,11 +384,20 @@ impl Engine {
         }
     }
 
-    /// Frees vector slots after external deletions (GUI trash action).
+    /// Frees text-vector slots after external deletions (GUI trash action).
     pub fn release_vector_slots(&self, slots: &[i64]) {
         if !slots.is_empty() {
             self.vector_store.lock().unwrap().free(slots).ok();
         }
+    }
+
+    /// Acoustic-similarity lane: audio query → matching audio/video files.
+    pub fn audio_match(&self, audio_pcm: &[f32]) -> Vec<(i64, f32)> {
+        let query = fingerprint::fingerprint_from_pcm(audio_pcm, extract::SAMPLE_RATE as u32);
+        if query.is_empty() {
+            return Vec::new();
+        }
+        self.audio_store.lock().unwrap().top_k(&query, 32)
     }
 }
 
@@ -651,6 +726,7 @@ fn start_watcher(
     catalog: &Arc<Catalog>,
     roots: &[PathBuf],
     vector_store: &Arc<Mutex<VectorStore>>,
+    audio_store: &Arc<Mutex<VectorStore>>,
     event_sender: &Sender<EngineEvent>,
     stop: &Arc<AtomicBool>,
 ) {
@@ -660,6 +736,7 @@ fn start_watcher(
     };
     let catalog = Arc::clone(catalog);
     let vector_store = Arc::clone(vector_store);
+    let audio_store = Arc::clone(audio_store);
     let event_sender = event_sender.clone();
     let stop = Arc::clone(stop);
     std::thread::Builder::new().name("ipic-watch".into()).spawn(move || loop {
@@ -676,6 +753,9 @@ fn start_watcher(
             }
             Ok(WatchUpdate::FreedSlots(slots)) => {
                 vector_store.lock().unwrap().free(&slots).ok();
+                if let Ok(freed_fingerprints) = catalog.drain_orphan_fingerprints() {
+                    audio_store.lock().unwrap().free(&freed_fingerprints).ok();
+                }
                 let _ = event_sender.try_send(EngineEvent::CatalogChanged);
             }
             Err(_) => {}

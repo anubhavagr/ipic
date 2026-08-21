@@ -100,11 +100,11 @@ fn table_row_position(harness: &Harness<'_, IpicApp>, text: &str) -> egui::Pos2 
 fn click_at(harness: &mut Harness<'_, IpicApp>, position: egui::Pos2, button: egui::PointerButton) {
     let modifiers = egui::Modifiers::default();
     harness.event(egui::Event::PointerMoved(position));
-    harness.run();
+    harness.run_steps(2);
     harness.event(egui::Event::PointerButton { pos: position, button, pressed: true, modifiers });
-    harness.run();
+    harness.run_steps(2);
     harness.event(egui::Event::PointerButton { pos: position, button, pressed: false, modifiers });
-    harness.run();
+    harness.run_steps(2);
 }
 
 #[test]
@@ -112,7 +112,7 @@ fn single_click_selects_file() {
     let world = TestWorld::create("select");
     let (mut harness, engine) = build_harness(&world, Arc::new(Mutex::new(Vec::new())));
     wait_until_indexed(&engine);
-    harness.run();
+    harness.run_steps(2);
     let row_position = table_row_position(&harness, "mission-briefing.md");
     click_at(&mut harness, row_position, egui::PointerButton::Primary);
     let selected = harness.state().selected_file.clone();
@@ -126,7 +126,7 @@ fn double_click_opens_file() {
     let opened = Arc::new(Mutex::new(Vec::new()));
     let (mut harness, engine) = build_harness(&world, Arc::clone(&opened));
     wait_until_indexed(&engine);
-    harness.run();
+    harness.run_steps(2);
     // Two rapid full clicks on the same spot register as a double click.
     let row_position = table_row_position(&harness, "mission-briefing.md");
     click_at(&mut harness, row_position, egui::PointerButton::Primary);
@@ -144,7 +144,7 @@ fn right_click_menu_opens_file() {
     let opened = Arc::new(Mutex::new(Vec::new()));
     let (mut harness, engine) = build_harness(&world, Arc::clone(&opened));
     wait_until_indexed(&engine);
-    harness.run();
+    harness.run_steps(2);
     let row_position = table_row_position(&harness, "beach-sunset.png");
     click_at(&mut harness, row_position, egui::PointerButton::Secondary);
     let menu_position = harness
@@ -167,11 +167,11 @@ fn enter_key_opens_selected_file() {
     let opened = Arc::new(Mutex::new(Vec::new()));
     let (mut harness, engine) = build_harness(&world, Arc::clone(&opened));
     wait_until_indexed(&engine);
-    harness.run();
+    harness.run_steps(2);
     let row_position = table_row_position(&harness, "mission-briefing.md");
     click_at(&mut harness, row_position, egui::PointerButton::Primary);
     harness.key_press(egui::Key::Enter);
-    harness.run();
+    harness.run_steps(2);
     let opened_paths = opened.lock().unwrap().clone();
     assert!(
         opened_paths.iter().any(|path| path.ends_with("mission-briefing.md")),

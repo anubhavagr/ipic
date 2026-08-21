@@ -13,7 +13,7 @@ use std::time::Instant;
 const VECTOR_WEIGHT: f32 = 1.0;
 const KEYWORD_WEIGHT: f32 = 0.7;
 const NAME_WEIGHT: f32 = 0.5;
-const RRF_CONSTANT: f32 = 60.0;
+pub const RRF_CONSTANT: f32 = 60.0;
 
 /// Which retrieval lanes contributed to a hit.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -21,6 +21,8 @@ pub struct MatchSources {
     pub semantic: bool,
     pub keyword: bool,
     pub filename: bool,
+    /// Audio-to-audio similarity against the acoustic fingerprint store.
+    pub acoustic: bool,
 }
 
 #[derive(Debug, Clone)]

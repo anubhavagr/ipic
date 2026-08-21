@@ -119,11 +119,11 @@ fn details_label_position(harness: &Harness<'_, IpicApp>, text: &str) -> egui::P
 fn click_at(harness: &mut Harness<'_, IpicApp>, position: egui::Pos2, button: egui::PointerButton) {
     let modifiers = egui::Modifiers::default();
     harness.event(egui::Event::PointerMoved(position));
-    harness.run();
+    harness.run_steps(2);
     harness.event(egui::Event::PointerButton { pos: position, button, pressed: true, modifiers });
-    harness.run();
+    harness.run_steps(2);
     harness.event(egui::Event::PointerButton { pos: position, button, pressed: false, modifiers });
-    harness.run();
+    harness.run_steps(2);
 }
 
 fn click_label(
@@ -157,13 +157,13 @@ fn click_menu_entry(harness: &mut Harness<'_, IpicApp>, text: &str) {
 /// Replaces the content of the focused text field: select all, then type.
 fn type_into_focused_edit(harness: &mut Harness<'_, IpicApp>, text: &str) {
     harness.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
-    harness.run();
+    harness.run_steps(2);
     if text.is_empty() {
         harness.key_press(egui::Key::Backspace);
     } else {
         harness.event(egui::Event::Text(text.into()));
     }
-    harness.run();
+    harness.run_steps(2);
 }
 
 /// Runs frames until a label containing `text` appears (background rescans
@@ -177,7 +177,7 @@ fn wait_for_label_contains(harness: &mut Harness<'_, IpicApp>, text: &str) {
         if Instant::now() > deadline {
             panic!("label containing {text:?} never appeared");
         }
-        harness.run();
+        harness.run_steps(2);
         std::thread::sleep(Duration::from_millis(20));
     }
 }
@@ -192,7 +192,7 @@ fn wait_for_label_gone(harness: &mut Harness<'_, IpicApp>, text: &str) {
         if Instant::now() > deadline {
             panic!("label {text:?} never disappeared");
         }
-        harness.run();
+        harness.run_steps(2);
         std::thread::sleep(Duration::from_millis(20));
     }
 }
@@ -211,7 +211,7 @@ fn context_menu_open_reveal_copy_path_act_without_panic() {
     let revealed = Arc::new(Mutex::new(Vec::new()));
     let (mut harness, engine) = build_harness(&world, Arc::clone(&opened), Arc::clone(&revealed));
     wait_until_indexed(&engine);
-    harness.run();
+    harness.run_steps(2);
 
     // All file-operation entries exist on the menu.
     click_label(&mut harness, "todo.txt", egui::PointerButton::Secondary);
@@ -224,7 +224,7 @@ fn context_menu_open_reveal_copy_path_act_without_panic() {
     // Reveal routes through the injectable handler — no Finder windows.
     click_label(&mut harness, "todo.txt", egui::PointerButton::Secondary);
     click_menu_entry(&mut harness, "Reveal in Finder");
-    harness.run();
+    harness.run_steps(2);
     let revealed_paths = revealed.lock().unwrap().clone();
     assert!(
         revealed_paths.iter().any(|path| path.ends_with("todo.txt")),
@@ -246,7 +246,7 @@ fn duplicate_creates_real_copy_on_disk_and_refreshes_listing() {
     let world = TestWorld::create("dup");
     let (mut harness, engine) = build_harness(&world, Arc::new(Mutex::new(Vec::new())), Arc::new(Mutex::new(Vec::new())));
     wait_until_indexed(&engine);
-    harness.run();
+    harness.run_steps(2);
 
     click_label(&mut harness, "beach-sunset.png", egui::PointerButton::Secondary);
     click_menu_entry(&mut harness, "Duplicate");
@@ -270,7 +270,7 @@ fn rename_dialog_enter_renames_file_without_leaking_open() {
     let revealed = Arc::new(Mutex::new(Vec::new()));
     let (mut harness, engine) = build_harness(&world, Arc::clone(&opened), Arc::clone(&revealed));
     wait_until_indexed(&engine);
-    harness.run();
+    harness.run_steps(2);
 
     // Select a different file first: Enter inside the rename dialog must act
     // on the dialog's target, not open the current selection.
@@ -278,7 +278,7 @@ fn rename_dialog_enter_renames_file_without_leaking_open() {
     open_rename_dialog(&mut harness, "mission-briefing.md");
     type_into_focused_edit(&mut harness, "flight-plan.md");
     harness.key_press(egui::Key::Enter);
-    harness.run();
+    harness.run_steps(2);
 
     let old_path = world.corpus.join("documents/mission-briefing.md");
     let new_path = world.corpus.join("documents/flight-plan.md");
@@ -300,7 +300,7 @@ fn rename_dialog_rename_button_renames_file() {
     let world = TestWorld::create("rename-button");
     let (mut harness, engine) = build_harness(&world, Arc::new(Mutex::new(Vec::new())), Arc::new(Mutex::new(Vec::new())));
     wait_until_indexed(&engine);
-    harness.run();
+    harness.run_steps(2);
 
     open_rename_dialog(&mut harness, "mission-briefing.md");
     type_into_focused_edit(&mut harness, "docking-notes.md");
@@ -322,7 +322,7 @@ fn rename_dialog_cancel_and_escape_leave_file_untouched() {
     let world = TestWorld::create("rename-cancel");
     let (mut harness, engine) = build_harness(&world, Arc::new(Mutex::new(Vec::new())), Arc::new(Mutex::new(Vec::new())));
     wait_until_indexed(&engine);
-    harness.run();
+    harness.run_steps(2);
     let original_path = world.corpus.join("documents/mission-briefing.md");
     let original_bytes = std::fs::read(&original_path).unwrap();
 
@@ -338,7 +338,7 @@ fn rename_dialog_cancel_and_escape_leave_file_untouched() {
     open_rename_dialog(&mut harness, "mission-briefing.md");
     type_into_focused_edit(&mut harness, "also-not.md");
     harness.key_press(egui::Key::Escape);
-    harness.run();
+    harness.run_steps(2);
     wait_for_label_gone(&mut harness, "New name:");
     assert!(original_path.exists(), "Escape must not rename the file");
     assert!(!world.corpus.join("documents/also-not.md").exists());
@@ -350,14 +350,14 @@ fn rename_dialog_rejects_invalid_names_without_damage() {
     let world = TestWorld::create("rename-invalid");
     let (mut harness, engine) = build_harness(&world, Arc::new(Mutex::new(Vec::new())), Arc::new(Mutex::new(Vec::new())));
     wait_until_indexed(&engine);
-    harness.run();
+    harness.run_steps(2);
     let original_path = world.corpus.join("documents/mission-briefing.md");
 
     // A name containing a path separator is rejected, dialog stays available.
     open_rename_dialog(&mut harness, "mission-briefing.md");
     type_into_focused_edit(&mut harness, "evil/name.md");
     harness.key_press(egui::Key::Enter);
-    harness.run();
+    harness.run_steps(2);
     assert!(original_path.exists(), "file must be untouched by invalid rename");
     assert!(
         harness.query_all_by_label_contains("rename failed").next().is_some(),
@@ -371,13 +371,13 @@ fn rename_dialog_rejects_invalid_names_without_damage() {
     // Empty name is also rejected.
     type_into_focused_edit(&mut harness, "");
     harness.key_press(egui::Key::Enter);
-    harness.run();
+    harness.run_steps(2);
     assert!(original_path.exists(), "file must be untouched by empty rename");
     assert!(harness.query_all_by_label_contains("New name:").next().is_some());
 
     // Escaping afterwards still closes the dialog cleanly.
     harness.key_press(egui::Key::Escape);
-    harness.run();
+    harness.run_steps(2);
     wait_for_label_gone(&mut harness, "New name:");
     assert!(original_path.exists());
 }
@@ -387,7 +387,7 @@ fn move_to_trash_removes_file_from_disk_and_listing() {
     let world = TestWorld::create("trash");
     let (mut harness, engine) = build_harness(&world, Arc::new(Mutex::new(Vec::new())), Arc::new(Mutex::new(Vec::new())));
     wait_until_indexed(&engine);
-    harness.run();
+    harness.run_steps(2);
     let target = world.corpus.join("todo.txt");
     assert!(target.exists());
 
@@ -414,7 +414,7 @@ fn enter_corpus_root(harness: &mut Harness<'_, IpicApp>, corpus: &std::path::Pat
         .rect()
         .center();
     click_at(harness, root_row, egui::PointerButton::Primary);
-    harness.run();
+    harness.run_steps(2);
 }
 
 #[test]
@@ -422,7 +422,7 @@ fn new_folder_enter_creates_directory_on_disk() {
     let world = TestWorld::create("folder-create");
     let (mut harness, engine) = build_harness(&world, Arc::new(Mutex::new(Vec::new())), Arc::new(Mutex::new(Vec::new())));
     wait_until_indexed(&engine);
-    harness.run();
+    harness.run_steps(2);
     enter_corpus_root(&mut harness, &world.corpus);
 
     let new_folder_button = table_row_position(&harness, "＋ New Folder");
@@ -430,7 +430,7 @@ fn new_folder_enter_creates_directory_on_disk() {
     wait_for_label_contains(&mut harness, "Create");
     type_into_focused_edit(&mut harness, "Field Notes");
     harness.key_press(egui::Key::Enter);
-    harness.run();
+    harness.run_steps(2);
 
     let created = world.corpus.join("Field Notes");
     assert!(created.is_dir(), "folder must be created on disk");
@@ -447,7 +447,7 @@ fn new_folder_create_button_creates_directory() {
     let world = TestWorld::create("folder-button");
     let (mut harness, engine) = build_harness(&world, Arc::new(Mutex::new(Vec::new())), Arc::new(Mutex::new(Vec::new())));
     wait_until_indexed(&engine);
-    harness.run();
+    harness.run_steps(2);
     enter_corpus_root(&mut harness, &world.corpus);
 
     let new_folder_button = table_row_position(&harness, "＋ New Folder");
@@ -456,7 +456,7 @@ fn new_folder_create_button_creates_directory() {
     type_into_focused_edit(&mut harness, "Sketches");
     let create_button = menu_entry_position(&harness, "Create");
     click_at(&mut harness, create_button, egui::PointerButton::Primary);
-    harness.run();
+    harness.run_steps(2);
 
     assert!(world.corpus.join("Sketches").is_dir(), "Create button must make the folder");
     wait_for_label_contains(&mut harness, "Sketches");
@@ -467,7 +467,7 @@ fn new_folder_escape_and_close_button_cancel_without_creating() {
     let world = TestWorld::create("folder-cancel");
     let (mut harness, engine) = build_harness(&world, Arc::new(Mutex::new(Vec::new())), Arc::new(Mutex::new(Vec::new())));
     wait_until_indexed(&engine);
-    harness.run();
+    harness.run_steps(2);
     enter_corpus_root(&mut harness, &world.corpus);
 
     // Escape collapses the inline editor.
@@ -475,7 +475,7 @@ fn new_folder_escape_and_close_button_cancel_without_creating() {
     click_at(&mut harness, new_folder_button, egui::PointerButton::Primary);
     wait_for_label_contains(&mut harness, "Create");
     harness.key_press(egui::Key::Escape);
-    harness.run();
+    harness.run_steps(2);
     wait_for_label_gone(&mut harness, "Create");
     assert!(harness.query_all_by_label("＋ New Folder").next().is_some());
 
@@ -488,7 +488,7 @@ fn new_folder_escape_and_close_button_cancel_without_creating() {
         .next()
         .expect("close button visible")
         .click_accesskit();
-    harness.run();
+    harness.run_steps(2);
     wait_for_label_gone(&mut harness, "Create");
     assert!(harness.query_all_by_label("＋ New Folder").next().is_some());
 
@@ -503,7 +503,7 @@ fn new_folder_in_library_view_shows_notice_instead_of_panicking() {
     let world = TestWorld::create("folder-library");
     let (mut harness, engine) = build_harness(&world, Arc::new(Mutex::new(Vec::new())), Arc::new(Mutex::new(Vec::new())));
     wait_until_indexed(&engine);
-    harness.run();
+    harness.run_steps(2);
     // Library view (no current folder) is the default after launch.
 
     let new_folder_button = table_row_position(&harness, "＋ New Folder");
@@ -511,7 +511,7 @@ fn new_folder_in_library_view_shows_notice_instead_of_panicking() {
     wait_for_label_contains(&mut harness, "Create");
     type_into_focused_edit(&mut harness, "Nowhere");
     harness.key_press(egui::Key::Enter);
-    harness.run();
+    harness.run_steps(2);
 
     wait_for_label_contains(&mut harness, "open a folder first");
     assert!(
@@ -531,7 +531,7 @@ fn details_panel_open_dispatches_through_open_handler_and_shows_text_preview() {
     let revealed = Arc::new(Mutex::new(Vec::new()));
     let (mut harness, engine) = build_harness(&world, Arc::clone(&opened), Arc::clone(&revealed));
     wait_until_indexed(&engine);
-    harness.run();
+    harness.run_steps(2);
 
     click_label(&mut harness, "mission-briefing.md", egui::PointerButton::Primary);
     // Wait for the extractor to land the first chunk in the catalog.

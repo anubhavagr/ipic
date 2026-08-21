@@ -2863,6 +2863,7 @@ dependencies = [
  "pdf-extract",
  "rayon",
  "rusqlite",
+ "rustfft",
  "serde",
  "symphonia",
  "ureq",

@@ -73,12 +73,23 @@ impl eframe::App for IpicApp {
             .default_size(250.0)
             .frame(egui::Frame::new().fill(theme::SURFACE_PANEL).inner_margin(egui::Margin::same(10)))
             .show(ui, |ui| sidebar::draw(ui, self));
-        if self.show_details {
-            egui::Panel::right("details")
-                .resizable(true)
-                .default_size(300.0)
-                .frame(egui::Frame::new().fill(theme::SURFACE_PANEL).inner_margin(egui::Margin::same(10)))
-                .show(ui, |ui| details::draw(ui, self));
+        // Floating inspector: appears only while something is selected and
+        // never re-flows the table (a side panel's late appearance used to
+        // shift rows and close open context menus).
+        if self.show_details
+            && let Some((file, _)) = self.selected_file.clone()
+        {
+            let mut window_open = true;
+            egui::Window::new(file.name.clone())
+                .id(egui::Id::new("details-inspector"))
+                .open(&mut window_open)
+                .collapsible(true)
+                .default_width(320.0)
+                .default_pos(egui::pos2(ui.max_rect().right() - 340.0, 90.0))
+                .show(ui.ctx(), |ui| details::draw(ui, self));
+            if !window_open {
+                self.selected_file = None;
+            }
         }
         egui::CentralPanel::default()
             .frame(egui::Frame::new().fill(theme::SURFACE_BASE).inner_margin(egui::Margin::same(14)))

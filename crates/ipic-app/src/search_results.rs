@@ -164,6 +164,7 @@ fn draw_lane_badges(ui: &mut Ui, hit: &SearchHit) {
     let lanes = [
         (hit.sources.semantic, "semantic", theme::ACCENT),
         (hit.sources.keyword, "keyword", theme::SUCCESS),
+        (hit.sources.acoustic, "acoustic", theme::SUCCESS),
         (hit.sources.filename, "filename", theme::WARNING),
     ];
     for (active, label, color) in lanes {

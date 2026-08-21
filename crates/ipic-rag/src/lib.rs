@@ -4,6 +4,7 @@
 pub mod embed;
 pub mod engine;
 pub mod extract;
+pub mod fingerprint;
 pub mod search;
 pub mod transcribe;
 pub mod vector_store;

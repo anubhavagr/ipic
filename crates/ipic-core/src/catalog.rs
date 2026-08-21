@@ -29,6 +29,10 @@ CREATE TABLE IF NOT EXISTS files(
 CREATE INDEX IF NOT EXISTS files_dir ON files(dir_id);
 CREATE INDEX IF NOT EXISTS files_rag ON files(rag);
 CREATE VIRTUAL TABLE IF NOT EXISTS chunks USING fts5(text, file_id UNINDEXED, vec_slot UNINDEXED);
+CREATE TABLE IF NOT EXISTS audio_fingerprints(
+  file_id INTEGER PRIMARY KEY REFERENCES files(id) ON DELETE CASCADE,
+  vec_slot INTEGER NOT NULL
+);
 ";
 
 /// New file row for upsert (parent resolved by caller).
@@ -189,6 +193,70 @@ impl Catalog {
             rowids.push(conn.last_insert_rowid());
         }
         Ok(rowids)
+    }
+
+    /// Swaps a file's acoustic fingerprint slot; returns the old slot, if any.
+    pub fn set_fingerprint_slot(&self, file_id: i64, slot: i64) -> CoreResult<Option<i64>> {
+        let conn = self.conn.lock().unwrap();
+        let previous = conn
+            .query_row(
+                "SELECT vec_slot FROM audio_fingerprints WHERE file_id = ?1",
+                params![file_id],
+                |row| row.get::<_, i64>(0),
+            )
+            .optional()?;
+        conn.execute(
+            "INSERT INTO audio_fingerprints(file_id, vec_slot) VALUES (?1, ?2)
+             ON CONFLICT(file_id) DO UPDATE SET vec_slot = excluded.vec_slot",
+            params![file_id, slot],
+        )?;
+        Ok(previous)
+    }
+
+    /// Frees fingerprint rows whose file vanished (cascades, scheme wipes).
+    pub fn drain_orphan_fingerprints(&self) -> CoreResult<Vec<i64>> {
+        let conn = self.conn.lock().unwrap();
+        let slots: Vec<i64> = conn
+            .prepare("SELECT vec_slot FROM audio_fingerprints WHERE file_id NOT IN (SELECT id FROM files)")?
+            .query_map([], |row| row.get(0))?
+            .collect::<Result<_, _>>()?;
+        conn.execute(
+            "DELETE FROM audio_fingerprints WHERE file_id NOT IN (SELECT id FROM files)",
+            [],
+        )?;
+        Ok(slots)
+    }
+
+    /// Empties the fingerprint table, returning (file_id, slot) pairs to free.
+    pub fn drain_fingerprints(&self) -> CoreResult<Vec<i64>> {
+        let conn = self.conn.lock().unwrap();
+        let slots: Vec<i64> = conn
+            .prepare("SELECT vec_slot FROM audio_fingerprints")?
+            .query_map([], |row| row.get(0))?
+            .collect::<Result<_, _>>()?;
+        conn.execute("DELETE FROM audio_fingerprints", [])?;
+        Ok(slots)
+    }
+
+    /// Fingerprint slots released by file removal; rows are deleted too.
+    pub fn take_fingerprint_slots(&self, file_ids: &[i64]) -> CoreResult<Vec<i64>> {
+        if file_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let conn = self.conn.lock().unwrap();
+        let placeholders = vec!["?"; file_ids.len()].join(",");
+        let slots: Vec<i64> = {
+            let mut statement =
+                conn.prepare(&format!("SELECT vec_slot FROM audio_fingerprints WHERE file_id IN ({placeholders})"))?;
+            statement
+                .query_map(params_from_iter(file_ids), |row| row.get(0))?
+                .collect::<Result<_, _>>()?
+        };
+        conn.execute(
+            &format!("DELETE FROM audio_fingerprints WHERE file_id IN ({placeholders})"),
+            params_from_iter(file_ids),
+        )?;
+        Ok(slots)
     }
 
     /// Binds persisted vector slots to their chunk rows.

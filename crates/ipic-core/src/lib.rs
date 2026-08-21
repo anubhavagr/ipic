@@ -182,7 +182,7 @@ impl Default for Config {
                 ".Trash", "Library", "Caches", "node_modules", ".git", ".cache", ".venv",
                 "__pycache__", "target", "dist", ".npm", ".cargo", ".rustup", ".docker",
             ].iter().map(|s| s.to_string()).collect(),
-            whisper_model: "base.en-q5_1".into(),
+            whisper_model: "small.en-q5_1".into(),
             whisper_workers: 3,
             whisper_use_gpu: false,
             embedder: default_embedder(),
