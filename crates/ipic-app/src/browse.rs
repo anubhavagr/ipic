@@ -285,22 +285,16 @@ fn draw_table(ui: &mut Ui, app: &mut IpicApp) {
                 row.set_selected(is_selected);
                 match &entry {
                     ListingEntry::Directory(directory) => {
-                        let mut opened = false;
                         row.col(|ui| {
                             ui.horizontal(|ui| {
-                                ui.label(RichText::new("▸").color(theme::ACCENT));
-                                if ui
-                                    .add(
-                                        egui::Button::new(
-                                            RichText::new(&directory.name).color(theme::TEXT_PRIMARY).strong(),
-                                        )
-                                        .fill(Color32::TRANSPARENT),
-                                    )
-                                    .clicked()
-                                {
-                                    opened = true;
-                                }
-                                ui.label(
+                                clickable_label(ui, RichText::new("▸").color(theme::ACCENT));
+                                clickable_label(
+                                    ui,
+                                    RichText::new(&directory.name).color(theme::TEXT_PRIMARY).strong(),
+                                )
+                                .on_hover_cursor(egui::CursorIcon::PointingHand);
+                                clickable_label(
+                                    ui,
                                     RichText::new(format!(
                                         "{} items",
                                         directory.file_count + directory.subdir_count
@@ -311,14 +305,29 @@ fn draw_table(ui: &mut Ui, app: &mut IpicApp) {
                             });
                         });
                         row.col(|ui| {
-                            ui.label(RichText::new("Folder").color(theme::TEXT_DIM));
+                            clickable_label(ui, RichText::new("Folder").color(theme::TEXT_DIM));
                         });
-                        for _ in 0..4 {
-                            row.col(|_ui| {});
+                        for column_index in 0..4 {
+                            row.col(|ui| {
+                                if column_index == 0 {
+                                    clickable_label(ui, RichText::new(""));
+                                }
+                            });
                         }
-                        if opened || row.response().double_clicked() {
+                        let interact = row.response();
+                        if interact.double_clicked() {
                             app.navigate_to(Some(directory.clone()));
                         }
+                        interact.context_menu(|ui| {
+                            if ui.button("Open").clicked() {
+                                app.navigate_to(Some(directory.clone()));
+                                ui.close();
+                            }
+                            if ui.button("Reveal in Finder").clicked() {
+                                crate::actions::reveal_in_file_manager(Path::new(&directory.path));
+                                ui.close();
+                            }
+                        });
                     }
                     ListingEntry::File(file) => {
                         draw_file_row(&mut row, app, file, index);
@@ -396,18 +405,20 @@ fn draw_file_row(row: &mut egui_extras::TableRow<'_, '_>, app: &mut IpicApp, fil
     let path = full_path(app, file);
     row.col(|ui| {
         ui.horizontal(|ui| {
-            ui.label(kind_glyph(file.kind));
-            ui.label(RichText::new(&file.name).color(theme::TEXT_PRIMARY));
+            clickable_label(ui, kind_glyph(file.kind));
+            clickable_label(ui, RichText::new(&file.name).color(theme::TEXT_PRIMARY))
+                .on_hover_cursor(egui::CursorIcon::PointingHand);
         });
     });
     row.col(|ui| {
-        ui.label(RichText::new(file.kind.label()).color(theme::TEXT_DIM).small());
+        clickable_label(ui, RichText::new(file.kind.label()).color(theme::TEXT_DIM).small());
     });
     row.col(|ui| {
-        ui.label(RichText::new(ipic_core::util::format_size(file.size)).color(theme::TEXT_DIM).monospace());
+        clickable_label(ui, RichText::new(ipic_core::util::format_size(file.size)).color(theme::TEXT_DIM).monospace());
     });
     row.col(|ui| {
-        ui.label(
+        clickable_label(
+            ui,
             RichText::new(ipic_core::util::format_local_timestamp(file.mtime))
                 .color(theme::TEXT_DIM)
                 .small(),
@@ -415,7 +426,7 @@ fn draw_file_row(row: &mut egui_extras::TableRow<'_, '_>, app: &mut IpicApp, fil
     });
     row.col(|ui| {
         let text = file.duration_secs.map(ipic_core::util::format_duration).unwrap_or_default();
-        ui.label(RichText::new(text).color(theme::TEXT_DIM).monospace());
+        clickable_label(ui, RichText::new(text).color(theme::TEXT_DIM).monospace());
     });
     row.col(|ui| {
         let (color, status) = match file.rag {
@@ -424,9 +435,9 @@ fn draw_file_row(row: &mut egui_extras::TableRow<'_, '_>, app: &mut IpicApp, fil
             RagStatus::Failed => (theme::DANGER, "failed"),
             RagStatus::Pending => (theme::TEXT_DIM, "queued"),
         };
-        ui.label(RichText::new(status).color(color).small());
+        clickable_label(ui, RichText::new(status).color(color).small());
     });
-    // Whole-row interactions via the union of cell responses.
+    // Whole-row interactions via the union of the (click-sensing) cells.
     let interact = row.response();
     if interact.clicked() {
         app.browse.selected_row = Some(index);
@@ -438,6 +449,11 @@ fn draw_file_row(row: &mut egui_extras::TableRow<'_, '_>, app: &mut IpicApp, fil
     interact.context_menu(|ui| {
         file_context_menu(ui, app, file, &path);
     });
+}
+
+/// A label that participates in row clicking (plain labels ignore pointers).
+fn clickable_label(ui: &mut Ui, contents: impl Into<egui::WidgetText>) -> egui::Response {
+    ui.add(egui::Label::new(contents).sense(egui::Sense::click()))
 }
 
 fn file_context_menu(ui: &mut Ui, app: &mut IpicApp, file: &FileRow, path: &str) {
