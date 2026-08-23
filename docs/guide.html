@@ -44,11 +44,12 @@
   nav a:hover { color: var(--text); background: var(--hover); }
   nav a.section { font-weight: 600; color: var(--text); margin-top: 18px; }
   /* ---------- hero ---------- */
-  header.hero { padding: 72px 0 48px; border-bottom: 1px solid var(--border); margin-bottom: 48px; grid-column: 2; }
-  .hero .eyebrow { color: var(--accent); font-weight: 600; font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase; }
-  .hero h1 { font-size: 44px; font-weight: 800; letter-spacing: -0.02em; margin: 10px 0 14px; }
-  .hero p.lede { font-size: 18px; color: var(--dim); max-width: 640px; }
-  .hero .badges { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 22px; }
+  header.hero { padding: 18px 0 14px; border-bottom: 1px solid var(--border); margin-bottom: 14px; grid-column: 2; }
+  .hero h1 { font-size: 24px; font-weight: 800; letter-spacing: -0.01em; display: inline; margin-right: 12px; }
+  .hero p.lede { font-size: 14px; color: var(--dim); display: inline; }
+  .hero .badges { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+  .hero .eyebrow { display: none; }
+  .hero .badge { font-size: 11px; padding: 2px 8px; }
   .badge { font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--border); background: var(--card); color: var(--dim); }
   .badge b { color: var(--text); font-weight: 650; }
   /* ---------- sections ---------- */
@@ -81,7 +82,8 @@
   .pill.green { background: #e3f3ec; color: var(--success); }
   .pill.blue { background: var(--accent-soft); color: var(--accent); }
   .pill.amber { background: #f7edd8; color: var(--warning); }
-  figure.diagram { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 24px; margin: 16px 0; }
+  figure.diagram { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; margin: 16px 0; }
+  figure.diagram svg { max-height: calc(100vh - 215px); }
   figure.diagram figcaption { text-align: center; color: var(--dim); font-size: 12.5px; margin-top: 12px; }
   footer { grid-column: 2; border-top: 1px solid var(--border); padding-top: 24px; color: var(--dim); font-size: 13px; }
   @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } nav { display: none; } header.hero, main, footer { grid-column: 1; } .grid2 { grid-template-columns: 1fr; } }
@@ -117,23 +119,14 @@
   <div class="eyebrow">Architecture &amp; User Guide</div>
   <h1>◆ ipic</h1>
   <p class="lede">A lightweight, blazingly fast multimodal file manager with fully on-device RAG search. Type or <em>speak</em> a natural-language query and ipic finds it across your text files, PDFs, audio, video and images — no cloud, no API calls, no telemetry.</p>
-  <div class="badges">
-    <span class="badge"><b>Rust</b> · egui</span>
-    <span class="badge"><b>100% offline</b> after first model fetch</span>
-    <span class="badge"><b>~318 MB</b> total disk footprint</span>
-    <span class="badge"><b>single-digit ms</b> search latency</span>
-    <span class="badge"><b>all cores</b> during indexing</span>
-  </div>
 </header>
 
 <main>
 
 <!-- ======================= SYSTEM DIAGRAM (top) ======================= -->
 <section id="diagram">
-  <h2><span class="num">00</span>The system at a glance</h2>
-  <p>Two flows share one set of stores. <strong>Left — indexing (write path):</strong> the filesystem is walked in parallel, cataloged with a crash-safe state machine, then claimed by workers that extract, transcribe, fingerprint, chunk and embed. <strong>Right — search (read path):</strong> a typed or spoken query fans out over four retrieval lanes whose ranks fuse into one list. The watcher (amber, far left) keeps the catalog live between scans.</p>
-
-  <figure class="diagram">
+  <h2 style="font-size:19px;margin-bottom:4px"><span class="num" style="display:inline;font-size:12px;margin-right:8px">00</span>The system at a glance</h2>
+  <figure class="diagram" style="margin:4px 0 10px;padding:10px">
     <svg viewBox="0 0 780 900" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto" font-family="Inter, sans-serif">
       <defs>
         <marker id="wArr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#6c727c"/></marker>
@@ -223,7 +216,6 @@
       <line x1="235" y1="742" x2="235" y2="800" stroke="#6c727c" stroke-width="1.5" marker-end="url(#wArr)"/>
       <text x="112" y="778" font-size="9.5" fill="#6c727c">i8 vectors</text>
 
-      <!-- fingerprint store route: down the sub-gutter, jog along the channel, drop in -->
       <path d="M 337 596 L 337 760 L 385 760 L 385 800" fill="none" stroke="#168a5a" stroke-width="1.5" marker-end="url(#gArr)"/>
 
       <!-- watcher feedback loop -->
@@ -285,7 +277,6 @@
       <text x="600" y="545" text-anchor="middle" font-size="12" font-weight="700" fill="#181b20">Ranked results</text>
       <text x="600" y="562" text-anchor="middle" font-size="10.5" fill="#6c727c">snippet · lane badges · 4–10 ms typical</text>
 
-      <!-- read path down to the stores, routed through the empty gutter -->
       <path d="M 600 580 L 600 610 L 420 610 L 420 764" fill="none" stroke="#2652f8" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#bArr)"/>
       <text x="428" y="788" font-size="9.5" fill="#2652f8">lanes read all stores — mmap · zero-copy</text>
 
@@ -312,13 +303,21 @@
       <line x1="200" y1="884" x2="224" y2="884" stroke="#168a5a" stroke-width="1.5"/><text x="230" y="888" font-size="10" fill="#6c727c">acoustic</text>
       <line x1="300" y1="884" x2="324" y2="884" stroke="#ae7612" stroke-width="1.5" stroke-dasharray="5 4"/><text x="330" y="888" font-size="10" fill="#6c727c">watcher</text>
     </svg>
-    <figcaption>Every connection is orthogonal and routed through dedicated gutters — no line crosses a box or a label. Solid gray/blue = writes, dashed blue = reads, green = acoustic signals, amber dashed = filesystem watcher.</figcaption>
+    <figcaption>Left: files flow down the indexing path into the shared stores. Right: queries fan out over four lanes and fuse into one ranked list. Solid gray/blue = writes, dashed blue = reads, green = acoustic signals, amber dashed = filesystem watcher.</figcaption>
   </figure>
+  <p>Two flows share one set of stores. <strong>Left — indexing (write path):</strong> the filesystem is walked in parallel, cataloged with a crash-safe state machine, then claimed by workers that extract, transcribe, fingerprint, chunk and embed. <strong>Right — search (read path):</strong> a typed or spoken query fans out over four retrieval lanes whose ranks fuse into one list. The watcher (amber, far left) keeps the catalog live between scans.</p>
 </section>
 
 <!-- ======================= OVERVIEW ======================= -->
 <section id="overview">
   <h2><span class="num">01</span>Overview</h2>
+  <div class="badges" style="margin-bottom:14px">
+    <span class="badge"><b>Rust</b> · egui</span>
+    <span class="badge"><b>100% offline</b> after first model fetch</span>
+    <span class="badge"><b>~318 MB</b> total disk footprint</span>
+    <span class="badge"><b>single-digit ms</b> search latency</span>
+    <span class="badge"><b>all cores</b> during indexing</span>
+  </div>
   <p>ipic is a native desktop application that combines two things that usually live in separate products: a <strong>proper file manager</strong> (tree navigation, sorting, filtering, bulk operations) and a <strong>local multimodal search engine</strong> (semantic + keyword + acoustic retrieval over your file contents).</p>
   <p>Everything executes on your machine. The two neural models (a text embedder and a speech-to-text encoder) are cached locally after a one-time download; from then on the app works fully offline. No query, filename, transcript or embedding ever leaves the process.</p>
   <div class="grid2">
@@ -374,7 +373,7 @@
   <h2><span class="num">04</span>Architecture</h2>
   <p>Four crates in one Cargo workspace, layered strictly downward. The GUI is a thin shell over the engine — every screen reads through catalog connections and engine events, never the filesystem directly, which is what makes the UI swappable (a TUI or web front-end could drive the same engine).</p>
 
-<p>The diagram at the top of this page shows the full flow; the walkthrough sections below (pipeline, storage, search) expand each stage.</p>
+<p>The diagram at the top of the page shows the full flow; the sections below expand each stage.</p>
 
   <h3>Layering in one line</h3>
   <p><code>ipic-app / ipic-cli</code> → <code>ipic-rag</code> (Engine) → <code>ipic-core</code> (catalog, walker, watcher). The GUI talks to the engine over channels and catalog reader connections only — never the filesystem — which is what keeps the front-end swappable.</p>
