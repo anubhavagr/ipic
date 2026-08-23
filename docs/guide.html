@@ -93,6 +93,7 @@
 <nav id="toc">
   <div class="brand"><span class="mark">◆</span> ipic</div>
   <div class="tagline">on-device multimodal file intelligence</div>
+  <a href="#diagram">System diagram</a>
   <a href="#overview">Overview</a>
   <a href="#features">Features</a>
   <a href="#quickstart">Quickstart</a>
@@ -126,6 +127,194 @@
 </header>
 
 <main>
+
+<!-- ======================= SYSTEM DIAGRAM (top) ======================= -->
+<section id="diagram">
+  <h2><span class="num">00</span>The system at a glance</h2>
+  <p>Two flows share one set of stores. <strong>Left — indexing (write path):</strong> the filesystem is walked in parallel, cataloged with a crash-safe state machine, then claimed by workers that extract, transcribe, fingerprint, chunk and embed. <strong>Right — search (read path):</strong> a typed or spoken query fans out over four retrieval lanes whose ranks fuse into one list. The watcher (amber, far left) keeps the catalog live between scans.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 780 900" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto" font-family="Inter, sans-serif">
+      <defs>
+        <marker id="wArr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#6c727c"/></marker>
+        <marker id="bArr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#2652f8"/></marker>
+        <marker id="gArr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#168a5a"/></marker>
+        <marker id="aArr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#ae7612"/></marker>
+      </defs>
+
+      <!-- column headers -->
+      <text x="210" y="26" text-anchor="middle" font-size="12.5" font-weight="700" fill="#6c727c" letter-spacing="1.2">INDEXING · WRITE PATH</text>
+      <text x="600" y="26" text-anchor="middle" font-size="12.5" font-weight="700" fill="#2652f8" letter-spacing="1.2">SEARCH · READ PATH</text>
+
+      <!-- ============ LEFT column, boxes x 40..380 ============ -->
+      <rect x="40" y="48" width="340" height="52" rx="9" fill="#ffffff" stroke="#e2e2e7"/>
+      <text x="210" y="69" text-anchor="middle" font-size="12.5" font-weight="700" fill="#181b20">🗂 Filesystem roots</text>
+      <text x="210" y="86" text-anchor="middle" font-size="10.5" fill="#6c727c">~/Downloads + added roots · skip-list pruning</text>
+
+      <line x1="210" y1="100" x2="210" y2="118" stroke="#6c727c" stroke-width="1.5" marker-end="url(#wArr)"/>
+
+      <rect x="40" y="122" width="340" height="52" rx="9" fill="#ffffff" stroke="#e2e2e7"/>
+      <text x="210" y="143" text-anchor="middle" font-size="12.5" font-weight="700" fill="#181b20">Parallel walker — 1 thread / core</text>
+      <text x="210" y="160" text-anchor="middle" font-size="10.5" fill="#6c727c">shared directory queue · symlinks never followed</text>
+
+      <line x1="210" y1="174" x2="210" y2="192" stroke="#6c727c" stroke-width="1.5" marker-end="url(#wArr)"/>
+
+      <rect x="40" y="196" width="340" height="52" rx="9" fill="#ffffff" stroke="#e2e2e7"/>
+      <text x="210" y="217" text-anchor="middle" font-size="12.5" font-weight="700" fill="#181b20">Collector — single writer</text>
+      <text x="210" y="234" text-anchor="middle" font-size="10.5" fill="#6c727c">batched upserts, 8k rows / transaction</text>
+
+      <line x1="210" y1="248" x2="210" y2="266" stroke="#6c727c" stroke-width="1.5" marker-end="url(#wArr)"/>
+
+      <rect x="40" y="270" width="340" height="88" rx="9" fill="#f3f3f5" stroke="#e2e2e7"/>
+      <text x="210" y="291" text-anchor="middle" font-size="12.5" font-weight="700" fill="#181b20">Catalog — SQLite WAL</text>
+      <text x="210" y="308" text-anchor="middle" font-size="10.5" fill="#6c727c">files · dirs tree · chunks (FTS5) · audio_fingerprints</text>
+      <text x="210" y="324" text-anchor="middle" font-size="10.5" fill="#6c727c">crash-safe states:</text>
+      <text x="210" y="344" text-anchor="middle" font-size="10.5" font-weight="650" fill="#181b20">Pending → Busy → Done / Failed</text>
+
+      <line x1="210" y1="358" x2="210" y2="376" stroke="#6c727c" stroke-width="1.5" marker-end="url(#wArr)"/>
+
+      <rect x="40" y="380" width="340" height="50" rx="9" fill="#ffffff" stroke="#e2e2e7"/>
+      <text x="210" y="401" text-anchor="middle" font-size="12.5" font-weight="700" fill="#181b20">Claim — self-serve workers</text>
+      <text x="210" y="418" text-anchor="middle" font-size="10.5" fill="#6c727c">atomic UPDATE … RETURNING · natural backpressure</text>
+
+      <!-- split into two lanes -->
+      <line x1="120" y1="430" x2="120" y2="448" stroke="#6c727c" stroke-width="1.5" marker-end="url(#wArr)"/>
+      <line x1="300" y1="430" x2="300" y2="448" stroke="#6c727c" stroke-width="1.5" marker-end="url(#wArr)"/>
+      <text x="210" y="444" text-anchor="middle" font-size="9.5" fill="#6c727c">two lanes</text>
+
+      <rect x="40" y="452" width="160" height="62" rx="9" fill="#ffffff" stroke="#e2e2e7"/>
+      <text x="120" y="473" text-anchor="middle" font-size="11.5" font-weight="700" fill="#181b20">Fast lane</text>
+      <text x="120" y="489" text-anchor="middle" font-size="10" fill="#6c727c">text · PDF · image</text>
+      <text x="120" y="504" text-anchor="middle" font-size="10" fill="#6c727c">panic-guarded extract</text>
+
+      <rect x="220" y="452" width="160" height="62" rx="9" fill="#ffffff" stroke="#e2e2e7"/>
+      <text x="300" y="473" text-anchor="middle" font-size="11.5" font-weight="700" fill="#181b20">Slow lane</text>
+      <text x="300" y="489" text-anchor="middle" font-size="10" fill="#6c727c">audio · video</text>
+      <text x="300" y="504" text-anchor="middle" font-size="10" fill="#6c727c">semaphore = state pool</text>
+
+      <line x1="232" y1="514" x2="232" y2="532" stroke="#6c727c" stroke-width="1.5" marker-end="url(#wArr)"/>
+      <line x1="337" y1="514" x2="337" y2="532" stroke="#168a5a" stroke-width="1.5" marker-end="url(#gArr)"/>
+
+      <rect x="170" y="536" width="115" height="60" rx="9" fill="#ffffff" stroke="#e2e2e7"/>
+      <text x="227" y="557" text-anchor="middle" font-size="11" font-weight="700" fill="#181b20">whisper</text>
+      <text x="227" y="572" text-anchor="middle" font-size="9.5" fill="#6c727c">small.en q5 · beam-5</text>
+      <text x="227" y="586" text-anchor="middle" font-size="9.5" fill="#6c727c">state pool · BLAS</text>
+
+      <rect x="295" y="536" width="85" height="60" rx="9" fill="#e3f3ec" stroke="#cfe8dc"/>
+      <text x="337" y="557" text-anchor="middle" font-size="11" font-weight="700" fill="#168a5a">finger-print</text>
+      <text x="337" y="572" text-anchor="middle" font-size="9.5" fill="#6c727c">FFT · 64 bands</text>
+      <text x="337" y="586" text-anchor="middle" font-size="9.5" fill="#6c727c">128-d vector</text>
+
+      <line x1="120" y1="514" x2="120" y2="612" stroke="#6c727c" stroke-width="1.5" marker-end="url(#wArr)"/>
+      <line x1="227" y1="596" x2="227" y2="612" stroke="#6c727c" stroke-width="1.5" marker-end="url(#wArr)"/>
+
+      <rect x="40" y="616" width="260" height="50" rx="9" fill="#ffffff" stroke="#e2e2e7"/>
+      <text x="170" y="637" text-anchor="middle" font-size="12" font-weight="700" fill="#181b20">Chunker — 320-word windows</text>
+      <text x="170" y="654" text-anchor="middle" font-size="10.5" fill="#6c727c">24-word overlap keeps boundaries searchable</text>
+
+      <line x1="170" y1="666" x2="170" y2="686" stroke="#6c727c" stroke-width="1.5" marker-end="url(#wArr)"/>
+
+      <rect x="40" y="690" width="260" height="52" rx="9" fill="#ffffff" stroke="#e2e2e7"/>
+      <text x="170" y="711" text-anchor="middle" font-size="12" font-weight="700" fill="#181b20">Embed writer — batches of 64</text>
+      <text x="170" y="728" text-anchor="middle" font-size="10.5" fill="#6c727c">bge-small ONNX · i8 quantize on write</text>
+
+      <!-- write drops into stores -->
+      <line x1="105" y1="742" x2="105" y2="800" stroke="#6c727c" stroke-width="1.5" marker-end="url(#wArr)"/>
+      <line x1="235" y1="742" x2="235" y2="800" stroke="#6c727c" stroke-width="1.5" marker-end="url(#wArr)"/>
+      <text x="112" y="778" font-size="9.5" fill="#6c727c">i8 vectors</text>
+
+      <!-- fingerprint store route: down the sub-gutter, jog along the channel, drop in -->
+      <path d="M 337 596 L 337 760 L 385 760 L 385 800" fill="none" stroke="#168a5a" stroke-width="1.5" marker-end="url(#gArr)"/>
+
+      <!-- watcher feedback loop -->
+      <path d="M 40 74 L 20 74 L 20 314 L 34 314" fill="none" stroke="#ae7612" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#aArr)"/>
+      <text x="9" y="194" font-size="9.5" fill="#ae7612" transform="rotate(-90 9 194)" text-anchor="middle">watcher · notify → rescan</text>
+
+      <!-- ============ RIGHT column, boxes x 455..745 ============ -->
+      <rect x="455" y="48" width="290" height="52" rx="9" fill="#ffffff" stroke="#e2e2e7"/>
+      <text x="600" y="69" text-anchor="middle" font-size="12.5" font-weight="700" fill="#181b20">Query — GUI search box · CLI</text>
+      <text x="600" y="86" text-anchor="middle" font-size="10.5" fill="#6c727c">typed text, or 🎙 recorded / file audio</text>
+
+      <line x1="517" y1="100" x2="517" y2="118" stroke="#2652f8" stroke-width="1.5" marker-end="url(#bArr)"/>
+      <line x1="672" y1="100" x2="672" y2="118" stroke="#168a5a" stroke-width="1.5" marker-end="url(#gArr)"/>
+
+      <rect x="455" y="122" width="125" height="56" rx="9" fill="#e2e9ff" stroke="#c9d6ff"/>
+      <text x="517" y="143" text-anchor="middle" font-size="11" font-weight="700" fill="#2652f8">embed query</text>
+      <text x="517" y="159" text-anchor="middle" font-size="9.5" fill="#6c727c">bge-small · 384-d</text>
+
+      <rect x="600" y="122" width="145" height="56" rx="9" fill="#e3f3ec" stroke="#cfe8dc"/>
+      <text x="672" y="138" text-anchor="middle" font-size="11" font-weight="700" fill="#168a5a">audio query prep</text>
+      <text x="672" y="152" text-anchor="middle" font-size="9.5" fill="#6c727c">transcribe (whisper)</text>
+      <text x="672" y="166" text-anchor="middle" font-size="9.5" fill="#6c727c">+ fingerprint (FFT)</text>
+
+      <line x1="517" y1="178" x2="517" y2="214" stroke="#2652f8" stroke-width="1.5" marker-end="url(#bArr)"/>
+      <text x="460" y="200" font-size="9.5" fill="#2652f8">384-d query</text>
+      <line x1="672" y1="178" x2="672" y2="214" stroke="#168a5a" stroke-width="1.5" marker-end="url(#gArr)"/>
+      <text x="742" y="200" font-size="9.5" fill="#168a5a" text-anchor="end">both signals</text>
+
+      <!-- lane bus -->
+      <rect x="455" y="218" width="290" height="170" rx="9" fill="#ffffff" stroke="#e2e2e7"/>
+      <text x="600" y="240" text-anchor="middle" font-size="11.5" font-weight="700" fill="#181b20">retrieval lanes — parallel over shared stores</text>
+
+      <rect x="467" y="252" width="128" height="56" rx="8" fill="#e2e9ff"/>
+      <text x="531" y="273" text-anchor="middle" font-size="11" font-weight="700" fill="#2652f8">semantic · w 1.0</text>
+      <text x="531" y="289" text-anchor="middle" font-size="9.5" fill="#6c727c">i8 top-k over mmap</text>
+
+      <rect x="607" y="252" width="128" height="56" rx="8" fill="#e3f3ec"/>
+      <text x="671" y="273" text-anchor="middle" font-size="11" font-weight="700" fill="#168a5a">acoustic · w 0.9</text>
+      <text x="671" y="289" text-anchor="middle" font-size="9.5" fill="#6c727c">audio queries only</text>
+
+      <rect x="467" y="318" width="128" height="56" rx="8" fill="#f3f3f5"/>
+      <text x="531" y="339" text-anchor="middle" font-size="11" font-weight="700" fill="#181b20">keyword · w 0.7</text>
+      <text x="531" y="355" text-anchor="middle" font-size="9.5" fill="#6c727c">FTS5 BM25 + snippet</text>
+
+      <rect x="607" y="318" width="128" height="56" rx="8" fill="#f3f3f5"/>
+      <text x="671" y="339" text-anchor="middle" font-size="11" font-weight="700" fill="#181b20">filename · w 0.5</text>
+      <text x="671" y="355" text-anchor="middle" font-size="9.5" fill="#6c727c">escaped LIKE</text>
+
+      <line x1="600" y1="388" x2="600" y2="424" stroke="#6c727c" stroke-width="1.5" marker-end="url(#wArr)"/>
+      <text x="606" y="410" font-size="9.5" fill="#6c727c">ranks per lane</text>
+
+      <rect x="455" y="428" width="290" height="56" rx="9" fill="#ffffff" stroke="#2652f8" stroke-width="1.5"/>
+      <text x="600" y="449" text-anchor="middle" font-size="12" font-weight="700" fill="#181b20">RRF fusion</text>
+      <text x="600" y="466" text-anchor="middle" font-size="10.5" fill="#6c727c">score = Σ wᵢ / (60 + rankᵢ) · best snippet per file</text>
+
+      <line x1="600" y1="484" x2="600" y2="520" stroke="#2652f8" stroke-width="1.5" marker-end="url(#bArr)"/>
+
+      <rect x="455" y="524" width="290" height="56" rx="9" fill="#ffffff" stroke="#e2e2e7"/>
+      <text x="600" y="545" text-anchor="middle" font-size="12" font-weight="700" fill="#181b20">Ranked results</text>
+      <text x="600" y="562" text-anchor="middle" font-size="10.5" fill="#6c727c">snippet · lane badges · 4–10 ms typical</text>
+
+      <!-- read path down to the stores, routed through the empty gutter -->
+      <path d="M 600 580 L 600 610 L 420 610 L 420 764" fill="none" stroke="#2652f8" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#bArr)"/>
+      <text x="428" y="788" font-size="9.5" fill="#2652f8">lanes read all stores — mmap · zero-copy</text>
+
+      <!-- ============ shared stores row ============ -->
+      <rect x="40" y="806" width="130" height="52" rx="9" fill="#17191d"/>
+      <text x="105" y="827" text-anchor="middle" font-size="10.5" font-weight="700" fill="#ffffff">vectors.bin</text>
+      <text x="105" y="843" text-anchor="middle" font-size="9.5" fill="#9aa1ab">text · i8 · mmap</text>
+
+      <rect x="180" y="806" width="130" height="52" rx="9" fill="#17191d"/>
+      <text x="245" y="827" text-anchor="middle" font-size="10.5" font-weight="700" fill="#ffffff">chunks FTS5</text>
+      <text x="245" y="843" text-anchor="middle" font-size="9.5" fill="#9aa1ab">BM25 · snippets</text>
+
+      <rect x="320" y="806" width="130" height="52" rx="9" fill="#1d2a23"/>
+      <text x="385" y="827" text-anchor="middle" font-size="10.5" font-weight="700" fill="#9fe0c0">fingerprints.bin</text>
+      <text x="385" y="843" text-anchor="middle" font-size="9.5" fill="#9aa1ab">128-d acoustic</text>
+
+      <rect x="470" y="806" width="270" height="52" rx="9" fill="#ffffff" stroke="#e2e2e7"/>
+      <text x="605" y="827" text-anchor="middle" font-size="10.5" font-weight="700" fill="#181b20">~/.ipic/models</text>
+      <text x="605" y="843" text-anchor="middle" font-size="9.5" fill="#6c727c">bge · whisper — local, cached, offline after first fetch</text>
+
+      <!-- legend -->
+      <line x1="40" y1="884" x2="64" y2="884" stroke="#6c727c" stroke-width="1.5"/><text x="70" y="888" font-size="10" fill="#6c727c">write</text>
+      <line x1="120" y1="884" x2="144" y2="884" stroke="#2652f8" stroke-width="1.5" stroke-dasharray="4 3"/><text x="150" y="888" font-size="10" fill="#6c727c">read</text>
+      <line x1="200" y1="884" x2="224" y2="884" stroke="#168a5a" stroke-width="1.5"/><text x="230" y="888" font-size="10" fill="#6c727c">acoustic</text>
+      <line x1="300" y1="884" x2="324" y2="884" stroke="#ae7612" stroke-width="1.5" stroke-dasharray="5 4"/><text x="330" y="888" font-size="10" fill="#6c727c">watcher</text>
+    </svg>
+    <figcaption>Every connection is orthogonal and routed through dedicated gutters — no line crosses a box or a label. Solid gray/blue = writes, dashed blue = reads, green = acoustic signals, amber dashed = filesystem watcher.</figcaption>
+  </figure>
+</section>
 
 <!-- ======================= OVERVIEW ======================= -->
 <section id="overview">
@@ -185,193 +374,7 @@
   <h2><span class="num">04</span>Architecture</h2>
   <p>Four crates in one Cargo workspace, layered strictly downward. The GUI is a thin shell over the engine — every screen reads through catalog connections and engine events, never the filesystem directly, which is what makes the UI swappable (a TUI or web front-end could drive the same engine).</p>
 
-  <figure class="diagram">
-    <svg viewBox="0 0 780 880" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto" font-family="Inter, sans-serif">
-      <defs>
-        <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-          <path d="M 0 0 L 10 5 L 0 10 z" fill="#6c727c"/>
-        </marker>
-        <marker id="arrB" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-          <path d="M 0 0 L 10 5 L 0 10 z" fill="#2652f8"/>
-        </marker>
-        <marker id="arrG" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-          <path d="M 0 0 L 10 5 L 0 10 z" fill="#168a5a"/>
-        </marker>
-      </defs>
-
-      <!-- ================= column headers ================= -->
-      <text x="205" y="24" text-anchor="middle" font-size="12.5" font-weight="700" fill="#6c727c" letter-spacing="1">INDEXING — WRITE PATH</text>
-      <text x="600" y="24" text-anchor="middle" font-size="12.5" font-weight="700" fill="#2652f8" letter-spacing="1">SEARCH — READ PATH</text>
-      <line x1="410" y1="14" x2="410" y2="860" stroke="#e2e2e7" stroke-width="1"/>
-
-      <!-- ================= LEFT: write path ================= -->
-      <rect x="30" y="40" width="350" height="52" rx="9" fill="#ffffff" stroke="#e2e2e7"/>
-      <text x="205" y="61" text-anchor="middle" font-size="12.5" font-weight="700" fill="#181b20">🗂 Filesystem roots</text>
-      <text x="205" y="78" text-anchor="middle" font-size="10.5" fill="#6c727c">~/Downloads · added roots · skip-list pruning</text>
-
-      <line x1="205" y1="92" x2="205" y2="114" stroke="#6c727c" stroke-width="1.5" marker-end="url(#arr)"/>
-
-      <rect x="30" y="116" width="350" height="56" rx="9" fill="#ffffff" stroke="#e2e2e7"/>
-      <text x="205" y="137" text-anchor="middle" font-size="12.5" font-weight="700" fill="#181b20">Parallel walker — 1 thread / core</text>
-      <text x="205" y="154" text-anchor="middle" font-size="10.5" fill="#6c727c">shared directory queue · symlinks never followed</text>
-
-      <line x1="205" y1="172" x2="205" y2="194" stroke="#6c727c" stroke-width="1.5" marker-end="url(#arr)"/>
-
-      <rect x="30" y="196" width="350" height="56" rx="9" fill="#ffffff" stroke="#e2e2e7"/>
-      <text x="205" y="217" text-anchor="middle" font-size="12.5" font-weight="700" fill="#181b20">Collector — single writer</text>
-      <text x="205" y="234" text-anchor="middle" font-size="10.5" fill="#6c727c">batched upserts 8k rows / tx · dirs registered on arrival</text>
-
-      <line x1="205" y1="252" x2="205" y2="274" stroke="#6c727c" stroke-width="1.5" marker-end="url(#arr)"/>
-
-      <!-- catalog -->
-      <rect x="30" y="276" width="350" height="88" rx="9" fill="#f3f3f5" stroke="#e2e2e7"/>
-      <text x="205" y="297" text-anchor="middle" font-size="12.5" font-weight="700" fill="#181b20">Catalog — SQLite WAL</text>
-      <text x="205" y="314" text-anchor="middle" font-size="10.5" fill="#6c727c">files · dirs tree · chunks (FTS5) · audio_fingerprints</text>
-      <text x="205" y="330" text-anchor="middle" font-size="10.5" fill="#6c727c">crash-safe states:</text>
-      <text x="205" y="348" text-anchor="middle" font-size="10.5" font-weight="600" fill="#6c727c">Pending → Busy → Done / Failed</text>
-
-      <line x1="205" y1="364" x2="205" y2="386" stroke="#6c727c" stroke-width="1.5" marker-end="url(#arr)"/>
-
-      <rect x="30" y="388" width="350" height="52" rx="9" fill="#ffffff" stroke="#e2e2e7"/>
-      <text x="205" y="409" text-anchor="middle" font-size="12.5" font-weight="700" fill="#181b20">Claim — self-serve workers</text>
-      <text x="205" y="426" text-anchor="middle" font-size="10.5" fill="#6c727c">atomic UPDATE … RETURNING · natural backpressure</text>
-
-      <line x1="130" y1="440" x2="130" y2="462" stroke="#6c727c" stroke-width="1.5" marker-end="url(#arr)"/>
-      <line x1="290" y1="440" x2="290" y2="462" stroke="#6c727c" stroke-width="1.5" marker-end="url(#arr)"/>
-
-      <!-- two lanes -->
-      <rect x="30" y="464" width="165" height="64" rx="9" fill="#ffffff" stroke="#e2e2e7"/>
-      <text x="112" y="485" text-anchor="middle" font-size="11.5" font-weight="700" fill="#181b20">Fast lane</text>
-      <text x="112" y="501" text-anchor="middle" font-size="10" fill="#6c727c">text · PDF · image</text>
-      <text x="112" y="516" text-anchor="middle" font-size="10" fill="#6c727c">panic-guarded extract</text>
-
-      <rect x="215" y="464" width="165" height="64" rx="9" fill="#ffffff" stroke="#e2e2e7"/>
-      <text x="297" y="485" text-anchor="middle" font-size="11.5" font-weight="700" fill="#181b20">Slow lane</text>
-      <text x="297" y="501" text-anchor="middle" font-size="10" fill="#6c727c">audio · video</text>
-      <text x="297" y="516" text-anchor="middle" font-size="10" fill="#6c727c">semaphore = state pool</text>
-
-      <!-- slow lane continues to whisper + fingerprint -->
-      <line x1="260" y1="528" x2="260" y2="550" stroke="#6c727c" stroke-width="1.5" marker-end="url(#arr)"/>
-      <line x1="335" y1="528" x2="335" y2="550" stroke="#168a5a" stroke-width="1.5" marker-end="url(#arrG)"/>
-
-      <rect x="175" y="552" width="120" height="64" rx="9" fill="#ffffff" stroke="#e2e2e7"/>
-      <text x="235" y="573" text-anchor="middle" font-size="11" font-weight="700" fill="#181b20">whisper</text>
-      <text x="235" y="588" text-anchor="middle" font-size="9.5" fill="#6c727c">small.en q5 · beam-5</text>
-      <text x="235" y="602" text-anchor="middle" font-size="9.5" fill="#6c727c">state pool · BLAS</text>
-
-      <rect x="305" y="552" width="120" height="64" rx="9" fill="#e3f3ec" stroke="#cfe8dc"/>
-      <text x="365" y="573" text-anchor="middle" font-size="11" font-weight="700" fill="#168a5a">fingerprint</text>
-      <text x="365" y="588" text-anchor="middle" font-size="9.5" fill="#6c727c">FFT → 64 bands</text>
-      <text x="365" y="602" text-anchor="middle" font-size="9.5" fill="#6c727c">shape + flux · 128-d</text>
-
-      <!-- fast lane + transcript converge on chunker -->
-      <line x1="112" y1="528" x2="112" y2="640" stroke="#6c727c" stroke-width="1.5"/>
-      <line x1="235" y1="616" x2="235" y2="640" stroke="#6c727c" stroke-width="1.5"/>
-      <line x1="112" y1="640" x2="150" y2="640" stroke="#6c727c" stroke-width="1.5"/>
-      <line x1="235" y1="640" x2="193" y2="640" stroke="#6c727c" stroke-width="1.5"/>
-      <line x1="171" y1="640" x2="171" y2="654" stroke="#6c727c" stroke-width="1.5" marker-end="url(#arr)"/>
-
-      <rect x="30" y="656" width="283" height="52" rx="9" fill="#ffffff" stroke="#e2e2e7"/>
-      <text x="171" y="677" text-anchor="middle" font-size="12" font-weight="700" fill="#181b20">Chunker — 320-word windows</text>
-      <text x="171" y="694" text-anchor="middle" font-size="10.5" fill="#6c727c">24-word overlap keeps boundaries searchable</text>
-
-      <line x1="171" y1="708" x2="171" y2="730" stroke="#6c727c" stroke-width="1.5" marker-end="url(#arr)"/>
-
-      <rect x="30" y="732" width="283" height="56" rx="9" fill="#ffffff" stroke="#e2e2e7"/>
-      <text x="171" y="753" text-anchor="middle" font-size="12" font-weight="700" fill="#181b20">Embed writer — batches of 64</text>
-      <text x="171" y="770" text-anchor="middle" font-size="10.5" fill="#6c727c">bge-small-en-v1.5 · ONNX Runtime · i8 quantize</text>
-
-      <!-- fingerprint store arrow (green, bypasses embedder) -->
-      <path d="M 365 616 L 365 800 L 400 800" fill="none" stroke="#168a5a" stroke-width="1.5" marker-end="url(#arrG)"/>
-
-      <!-- write-path arrows into stores -->
-      <line x1="112" y1="788" x2="112" y2="800" stroke="#6c727c" stroke-width="1.5" marker-end="url(#arr)"/>
-      <line x1="171" y1="788" x2="260" y2="800" stroke="#6c727c" stroke-width="1.5" marker-end="url(#arr)"/>
-
-      <!-- watcher feedback loop (far left, dashed) -->
-      <path d="M 30 66 L 8 66 L 8 316 L 26 316" fill="none" stroke="#ae7612" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#arr)"/>
-      <text x="12" y="196" font-size="9.5" fill="#ae7612" transform="rotate(-90 12 196)" text-anchor="middle">notify → incremental rescan</text>
-
-      <!-- ================= RIGHT: read path ================= -->
-      <rect x="455" y="40" width="295" height="52" rx="9" fill="#ffffff" stroke="#e2e2e7"/>
-      <text x="602" y="61" text-anchor="middle" font-size="12.5" font-weight="700" fill="#181b20">Query — GUI search box · CLI</text>
-      <text x="602" y="78" text-anchor="middle" font-size="10.5" fill="#6c727c">typed text, or 🎙 recorded / file audio</text>
-
-      <line x1="520" y1="92" x2="520" y2="114" stroke="#2652f8" stroke-width="1.5" marker-end="url(#arrB)"/>
-      <line x1="685" y1="92" x2="685" y2="114" stroke="#168a5a" stroke-width="1.5" marker-end="url(#arrG)"/>
-
-      <rect x="455" y="116" width="130" height="56" rx="9" fill="#e2e9ff" stroke="#c9d6ff"/>
-      <text x="520" y="137" text-anchor="middle" font-size="11" font-weight="700" fill="#2652f8">embed query</text>
-      <text x="520" y="153" text-anchor="middle" font-size="9.5" fill="#6c727c">bge-small · 384-d</text>
-
-      <rect x="600" y="116" width="150" height="56" rx="9" fill="#e3f3ec" stroke="#cfe8dc"/>
-      <text x="675" y="132" text-anchor="middle" font-size="11" font-weight="700" fill="#168a5a">audio query prep</text>
-      <text x="675" y="146" text-anchor="middle" font-size="9.5" fill="#6c727c">transcribe (whisper)</text>
-      <text x="675" y="160" text-anchor="middle" font-size="9.5" fill="#6c727c">+ fingerprint (FFT)</text>
-
-      <!-- four lanes -->
-      <line x1="520" y1="172" x2="520" y2="196" stroke="#2652f8" stroke-width="1.5" marker-end="url(#arrB)"/>
-      <line x1="640" y1="172" x2="640" y2="196" stroke="#2652f8" stroke-width="1.5" marker-end="url(#arrB)"/>
-
-      <rect x="455" y="198" width="130" height="56" rx="9" fill="#ffffff" stroke="#e2e2e7"/>
-      <text x="520" y="219" text-anchor="middle" font-size="11" font-weight="700" fill="#181b20">semantic</text>
-      <text x="520" y="235" text-anchor="middle" font-size="10" fill="#6c727c">w 1.0 · i8 top-k mmap</text>
-
-      <rect x="600" y="198" width="150" height="56" rx="9" fill="#ffffff" stroke="#e2e2e7"/>
-      <text x="675" y="219" text-anchor="middle" font-size="11" font-weight="700" fill="#181b20">keyword — BM25</text>
-      <text x="675" y="235" text-anchor="middle" font-size="10" fill="#6c727c">w 0.7 · FTS5 + snippet()</text>
-
-      <rect x="600" y="268" width="150" height="56" rx="9" fill="#ffffff" stroke="#e2e2e7"/>
-      <text x="675" y="289" text-anchor="middle" font-size="11" font-weight="700" fill="#181b20">filename</text>
-      <text x="675" y="305" text-anchor="middle" font-size="10" fill="#6c727c">w 0.5 · escaped LIKE</text>
-
-      <rect x="455" y="268" width="130" height="56" rx="9" fill="#e3f3ec" stroke="#cfe8dc"/>
-      <text x="520" y="289" text-anchor="middle" font-size="11" font-weight="700" fill="#168a5a">acoustic</text>
-      <text x="520" y="305" text-anchor="middle" font-size="10" fill="#6c727c">w 0.9 · audio queries</text>
-
-      <!-- converge to RRF -->
-      <line x1="520" y1="324" x2="560" y2="360" stroke="#6c727c" stroke-width="1.5" marker-end="url(#arr)"/>
-      <line x1="675" y1="254" x2="640" y2="360" stroke="#6c727c" stroke-width="1.5" marker-end="url(#arr)"/>
-      <line x1="675" y1="324" x2="645" y2="360" stroke="#6c727c" stroke-width="1.5" marker-end="url(#arr)"/>
-
-      <rect x="480" y="362" width="245" height="60" rx="9" fill="#ffffff" stroke="#2652f8" stroke-width="1.5"/>
-      <text x="602" y="384" text-anchor="middle" font-size="12" font-weight="700" fill="#181b20">RRF fusion</text>
-      <text x="602" y="401" text-anchor="middle" font-size="10.5" fill="#6c727c">score = Σ wᵢ / (60 + rankᵢ) · per-file</text>
-
-      <line x1="602" y1="422" x2="602" y2="444" stroke="#2652f8" stroke-width="1.5" marker-end="url(#arrB)"/>
-
-      <rect x="480" y="446" width="245" height="60" rx="9" fill="#ffffff" stroke="#e2e2e7"/>
-      <text x="602" y="467" text-anchor="middle" font-size="12" font-weight="700" fill="#181b20">Ranked results</text>
-      <text x="602" y="484" text-anchor="middle" font-size="10.5" fill="#6c727c">snippet · lane badges · 4–10 ms typical</text>
-
-      <!-- read arrows down to stores -->
-      <path d="M 520 506 L 520 560 L 112 560 L 112 800" fill="none" stroke="#2652f8" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#arrB)"/>
-      <path d="M 520 506 L 520 800" fill="none" stroke="#2652f8" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#arrB)"/>
-      <path d="M 675 506 L 675 580 L 260 580 L 260 800" fill="none" stroke="#2652f8" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#arrB)"/>
-      <path d="M 520 324 L 445 324 L 445 800" fill="none" stroke="#168a5a" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#arrG)"/>
-      <text x="532" y="700" font-size="10" fill="#2652f8">lanes read the shared stores (mmap · zero-copy)</text>
-
-      <!-- ================= shared stores row ================= -->
-      <rect x="30" y="802" width="130" height="52" rx="9" fill="#17191d"/>
-      <text x="95" y="823" text-anchor="middle" font-size="10.5" font-weight="700" fill="#ffffff">vectors.bin</text>
-      <text x="95" y="839" text-anchor="middle" font-size="9.5" fill="#9aa1ab">text · i8 · mmap</text>
-
-      <rect x="195" y="802" width="130" height="52" rx="9" fill="#17191d"/>
-      <text x="260" y="823" text-anchor="middle" font-size="10.5" font-weight="700" fill="#ffffff">chunks FTS5</text>
-      <text x="260" y="839" text-anchor="middle" font-size="9.5" fill="#9aa1ab">BM25 · snippets</text>
-
-      <rect x="380" y="802" width="130" height="52" rx="9" fill="#1d2a23"/>
-      <text x="445" y="823" text-anchor="middle" font-size="10.5" font-weight="700" fill="#9fe0c0">fingerprints.bin</text>
-      <text x="445" y="839" text-anchor="middle" font-size="9.5" fill="#9aa1ab">128-d acoustic</text>
-
-      <rect x="560" y="802" width="190" height="52" rx="9" fill="#ffffff" stroke="#e2e2e7"/>
-      <text x="655" y="823" text-anchor="middle" font-size="10.5" font-weight="700" fill="#181b20">~/.ipic/models</text>
-      <text x="655" y="839" text-anchor="middle" font-size="9.5" fill="#6c727c">bge · whisper — local, cached</text>
-
-      <text x="390" y="874" text-anchor="middle" font-size="10.5" fill="#6c727c">solid = write path &nbsp;·&nbsp; dashed = read path &nbsp;·&nbsp; green = acoustic &nbsp;·&nbsp; amber dashed = filesystem watcher</text>
-    </svg>
-    <figcaption>End-to-end system diagram: files flow down the left (extract → understand → embed → store); queries flow down the right (lanes over the shared stores → RRF fusion). The watcher keeps the catalog live between scans.</figcaption>
-  </figure>
+<p>The diagram at the top of this page shows the full flow; the walkthrough sections below (pipeline, storage, search) expand each stage.</p>
 
   <h3>Layering in one line</h3>
   <p><code>ipic-app / ipic-cli</code> → <code>ipic-rag</code> (Engine) → <code>ipic-core</code> (catalog, walker, watcher). The GUI talks to the engine over channels and catalog reader connections only — never the filesystem — which is what keeps the front-end swappable.</p>
