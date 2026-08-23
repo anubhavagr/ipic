@@ -44,7 +44,7 @@
   nav a:hover { color: var(--text); background: var(--hover); }
   nav a.section { font-weight: 600; color: var(--text); margin-top: 18px; }
   /* ---------- hero ---------- */
-  header.hero { padding: 18px 0 14px; border-bottom: 1px solid var(--border); margin-bottom: 14px; grid-column: 2; }
+  header.hero { max-width: 1200px; margin: 0 auto 14px; padding: 18px 32px 14px; border-bottom: 1px solid var(--border); }
   .hero h1 { font-size: 24px; font-weight: 800; letter-spacing: -0.01em; display: inline; margin-right: 12px; }
   .hero p.lede { font-size: 14px; color: var(--dim); display: inline; }
   .hero .badges { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
@@ -83,13 +83,19 @@
   .pill.blue { background: var(--accent-soft); color: var(--accent); }
   .pill.amber { background: #f7edd8; color: var(--warning); }
   figure.diagram { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; margin: 16px 0; }
-  figure.diagram svg { max-height: calc(100vh - 215px); }
+  figure.diagram svg { max-height: calc(100vh - 245px); }
   figure.diagram figcaption { text-align: center; color: var(--dim); font-size: 12.5px; margin-top: 12px; }
   footer { grid-column: 2; border-top: 1px solid var(--border); padding-top: 24px; color: var(--dim); font-size: 13px; }
   @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } nav { display: none; } header.hero, main, footer { grid-column: 1; } .grid2 { grid-template-columns: 1fr; } }
 </style>
 </head>
 <body>
+<header class="hero">
+  <div class="eyebrow">Architecture &amp; User Guide</div>
+  <h1>◆ ipic</h1>
+  <p class="lede">A lightweight, blazingly fast multimodal file manager with fully on-device RAG search. Type or <em>speak</em> a natural-language query and ipic finds it across your text files, PDFs, audio, video and images — no cloud, no API calls, no telemetry.</p>
+</header>
+
 <div class="layout">
 
 <nav id="toc">
@@ -115,11 +121,7 @@
   <a href="#limits">Limits &amp; roadmap</a>
 </nav>
 
-<header class="hero">
-  <div class="eyebrow">Architecture &amp; User Guide</div>
-  <h1>◆ ipic</h1>
-  <p class="lede">A lightweight, blazingly fast multimodal file manager with fully on-device RAG search. Type or <em>speak</em> a natural-language query and ipic finds it across your text files, PDFs, audio, video and images — no cloud, no API calls, no telemetry.</p>
-</header>
+
 
 <main>
 
