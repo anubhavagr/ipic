@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ipic — Architecture &amp; User Guide</title>
+<style>
+  :root {
+    --canvas: #fafafb;
+    --panel: #f3f3f5;
+    --card: #ffffff;
+    --hover: #ebebef;
+    --border: #e2e2e7;
+    --accent: #2652f8;
+    --accent-soft: #e2e9ff;
+    --text: #181b20;
+    --dim: #6c727c;
+    --success: #168a5a;
+    --warning: #ae7612;
+    --danger: #db2a2a;
+    --code-bg: #17191d;
+    --code-text: #e6e9ef;
+    --radius: 10px;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; scroll-padding-top: 24px; }
+  body {
+    font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--canvas); color: var(--text);
+    font-size: 15.5px; line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+  .layout { display: grid; grid-template-columns: 250px minmax(0, 860px); gap: 48px; max-width: 1200px; margin: 0 auto; padding: 0 32px 96px; }
+  /* ---------- nav ---------- */
+  nav {
+    position: sticky; top: 0; align-self: start; height: 100vh; overflow-y: auto;
+    padding: 40px 8px 40px 0; border-right: 1px solid var(--border);
+    font-size: 13.5px;
+  }
+  nav .brand { font-weight: 700; font-size: 17px; margin-bottom: 4px; }
+  nav .brand .mark { color: var(--accent); }
+  nav .tagline { color: var(--dim); font-size: 12px; margin-bottom: 28px; }
+  nav a { display: block; color: var(--dim); text-decoration: none; padding: 5px 12px; border-radius: 6px; }
+  nav a:hover { color: var(--text); background: var(--hover); }
+  nav a.section { font-weight: 600; color: var(--text); margin-top: 18px; }
+  /* ---------- hero ---------- */
+  header.hero { padding: 72px 0 48px; border-bottom: 1px solid var(--border); margin-bottom: 48px; grid-column: 2; }
+  .hero .eyebrow { color: var(--accent); font-weight: 600; font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase; }
+  .hero h1 { font-size: 44px; font-weight: 800; letter-spacing: -0.02em; margin: 10px 0 14px; }
+  .hero p.lede { font-size: 18px; color: var(--dim); max-width: 640px; }
+  .hero .badges { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 22px; }
+  .badge { font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--border); background: var(--card); color: var(--dim); }
+  .badge b { color: var(--text); font-weight: 650; }
+  /* ---------- sections ---------- */
+  main { grid-column: 2; }
+  section { margin-bottom: 64px; }
+  h2 { font-size: 26px; font-weight: 750; letter-spacing: -0.01em; margin-bottom: 6px; }
+  h2 .num { color: var(--accent); font-size: 15px; font-weight: 700; display: block; margin-bottom: 2px; letter-spacing: 0.06em; }
+  h3 { font-size: 17px; font-weight: 700; margin: 28px 0 8px; }
+  p { margin-bottom: 12px; color: #2f333a; }
+  p.note { color: var(--dim); font-size: 13.5px; }
+  ul, ol { margin: 0 0 14px 20px; }
+  li { margin-bottom: 6px; }
+  li::marker { color: var(--accent); font-weight: 600; }
+  strong { font-weight: 650; }
+  code { font-family: "JetBrains Mono", "SF Mono", Menlo, monospace; font-size: 0.86em; background: var(--panel); border: 1px solid var(--border); padding: 1px 5px; border-radius: 5px; }
+  pre { background: var(--code-bg); color: var(--code-text); border-radius: var(--radius); padding: 18px 20px; overflow-x: auto; margin: 14px 0 18px; font-size: 13px; line-height: 1.6; }
+  pre code { background: none; border: none; padding: 0; color: inherit; font-size: inherit; }
+  .c { color: #7d8590; } .k { color: #8ab4ff; } .s { color: #a5d6a7; } .n { color: #ffcb6b; }
+  table { width: 100%; border-collapse: collapse; margin: 14px 0 18px; font-size: 14px; background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+  th { text-align: left; font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--dim); background: var(--panel); padding: 10px 14px; border-bottom: 1px solid var(--border); }
+  td { padding: 10px 14px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px 22px; margin: 14px 0; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .stat { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 18px; }
+  .stat .v { font-size: 24px; font-weight: 800; color: var(--accent); letter-spacing: -0.01em; }
+  .stat .l { font-size: 12.5px; color: var(--dim); margin-top: 2px; }
+  .kbd { display: inline-block; font-family: inherit; font-size: 12px; font-weight: 600; border: 1px solid var(--border); border-bottom-width: 2px; background: var(--card); border-radius: 5px; padding: 1px 7px; margin: 0 1px; }
+  .pill { display: inline-block; font-size: 11.5px; font-weight: 650; padding: 2px 9px; border-radius: 999px; }
+  .pill.green { background: #e3f3ec; color: var(--success); }
+  .pill.blue { background: var(--accent-soft); color: var(--accent); }
+  .pill.amber { background: #f7edd8; color: var(--warning); }
+  figure.diagram { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 24px; margin: 16px 0; }
+  figure.diagram figcaption { text-align: center; color: var(--dim); font-size: 12.5px; margin-top: 12px; }
+  footer { grid-column: 2; border-top: 1px solid var(--border); padding-top: 24px; color: var(--dim); font-size: 13px; }
+  @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } nav { display: none; } header.hero, main, footer { grid-column: 1; } .grid2 { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<div class="layout">
+
+<nav id="toc">
+  <div class="brand"><span class="mark">◆</span> ipic</div>
+  <div class="tagline">on-device multimodal file intelligence</div>
+  <a href="#overview">Overview</a>
+  <a href="#features">Features</a>
+  <a href="#quickstart">Quickstart</a>
+  <a href="#architecture" class="section">Architecture</a>
+  <a href="#crates">The four crates</a>
+  <a href="#pipeline">Indexing pipeline</a>
+  <a href="#storage">Storage formats</a>
+  <a href="#search">Search internals</a>
+  <a href="#audio">Audio-to-audio matching</a>
+  <a href="#threads">Threads &amp; cores</a>
+  <a href="#gui" class="section">The GUI</a>
+  <a href="#shortcuts">Keyboard shortcuts</a>
+  <a href="#config" class="section">Configuration</a>
+  <a href="#cli">CLI reference</a>
+  <a href="#testing">Testing strategy</a>
+  <a href="#privacy">Privacy model</a>
+  <a href="#limits">Limits &amp; roadmap</a>
+</nav>
+
+<header class="hero">
+  <div class="eyebrow">Architecture &amp; User Guide</div>
+  <h1>◆ ipic</h1>
+  <p class="lede">A lightweight, blazingly fast multimodal file manager with fully on-device RAG search. Type or <em>speak</em> a natural-language query and ipic finds it across your text files, PDFs, audio, video and images — no cloud, no API calls, no telemetry.</p>
+  <div class="badges">
+    <span class="badge"><b>Rust</b> · egui</span>
+    <span class="badge"><b>100% offline</b> after first model fetch</span>
+    <span class="badge"><b>~318 MB</b> total disk footprint</span>
+    <span class="badge"><b>single-digit ms</b> search latency</span>
+    <span class="badge"><b>all cores</b> during indexing</span>
+  </div>
+</header>
+
+<main>
+
+<!-- ======================= OVERVIEW ======================= -->
+<section id="overview">
+  <h2><span class="num">01</span>Overview</h2>
+  <p>ipic is a native desktop application that combines two things that usually live in separate products: a <strong>proper file manager</strong> (tree navigation, sorting, filtering, bulk operations) and a <strong>local multimodal search engine</strong> (semantic + keyword + acoustic retrieval over your file contents).</p>
+  <p>Everything executes on your machine. The two neural models (a text embedder and a speech-to-text encoder) are cached locally after a one-time download; from then on the app works fully offline. No query, filename, transcript or embedding ever leaves the process.</p>
+  <div class="grid2">
+    <div class="stat"><div class="v">4 – 10 ms</div><div class="l">typical end-to-end search latency</div></div>
+    <div class="stat"><div class="v">~435 files/s</div><div class="l">full scan + index throughput observed on Apple Silicon</div></div>
+    <div class="stat"><div class="v">1 byte</div><div class="l">per vector component — i8-quantized, page-cache-resident index</div></div>
+    <div class="stat"><div class="v">35×</div><div class="l">realtime transcription (small.en, beam-5, Accelerate BLAS)</div></div>
+  </div>
+</section>
+
+<!-- ======================= FEATURES ======================= -->
+<section id="features">
+  <h2><span class="num">02</span>Features</h2>
+  <table>
+    <tr><th>Area</th><th>What you get</th></tr>
+    <tr><td><strong>File management</strong></td><td>Back/forward/up navigation, breadcrumbs, sidebar tree, virtualized table, sort by name / kind / size / modified / duration, kind &amp; size &amp; recency filters, ⌘-click / ⇧-click / ⌘A multi-select, open · reveal · rename · duplicate · new folder · move-to-trash (bulk-aware), status dot per row (green indexed / red failed / amber working / faint queued).</td></tr>
+    <tr><td><strong>Unified search</strong></td><td>One box, no mode picking. Typing live-filters by name; <span class="kbd">Enter</span> runs full multimodal retrieval; <span class="kbd">Esc</span> returns you to the exact folder you were browsing before the search.</td></tr>
+    <tr><td><strong>Spoken queries</strong></td><td>Record from the mic; whisper transcribes locally and the transcript drives the text lanes <em>while the raw waveform matches acoustically against every indexed recording</em> — both signal groups fused into one ranked list.</td></tr>
+    <tr><td><strong>Media understanding</strong></td><td>Speech inside audio/video is transcribed at index time (lectures, podcasts, talks become full-text searchable). Images are searchable through filename + folder context.</td></tr>
+    <tr><td><strong>Live index</strong></td><td>Filesystem watcher keeps the catalog current; interrupted indexing resumes on next launch; per-file RAG status visible in the UI.</td></tr>
+  </table>
+</section>
+
+<!-- ======================= QUICKSTART ======================= -->
+<section id="quickstart">
+  <h2><span class="num">03</span>Quickstart</h2>
+  <h3>Requirements</h3>
+  <ul>
+    <li>Rust 1.94+ and <code>cmake</code> (whisper.cpp builds automatically)</li>
+    <li>macOS on Apple Silicon is the primary target; Linux works with the same code paths</li>
+    <li><code>ffmpeg</code> optional — broadens A/V container coverage; wav/mp3/flac/ogg/m4a decode fine without it</li>
+    <li>~250 MB free disk for the two local models (downloaded once, then fully offline)</li>
+  </ul>
+  <h3>Build &amp; run</h3>
+<pre><code><span class="c">$ git clone https://github.com/anubhavagr/ipic && cd ipic</span>
+<span class="c">$ cargo build --release</span>
+
+<span class="c"># GUI</span>
+<span class="k">$</span> ./target/release/ipic
+
+<span class="c"># or headless</span>
+<span class="k">$</span> ./target/release/ipic-cli scan                       <span class="c"># index everything under roots (live progress bar)</span>
+<span class="k">$</span> ./target/release/ipic-cli search <span class="s">"radiation shielding on mars"</span>
+<span class="k">$</span> ./target/release/ipic-cli ask --audio question.wav   <span class="c"># spoken/audio query</span>
+<span class="k">$</span> ./target/release/ipic-cli status                     <span class="c"># index statistics</span>
+<span class="k">$</span> ./target/release/ipic-cli list --kind video
+<span class="k">$</span> ./target/release/ipic-cli config --set-roots ~/Downloads ~/Movies</span></code></pre>
+  <p class="note">Default scope is <code>~/Downloads</code>. First run downloads bge-small-en-v1.5 (~130 MB) and whisper small.en q5 (~180 MB) into <code>~/.ipic/models/</code>.</p>
+</section>
+
+<!-- ======================= ARCHITECTURE ======================= -->
+<section id="architecture">
+  <h2><span class="num">04</span>Architecture</h2>
+  <p>Four crates in one Cargo workspace, layered strictly downward. The GUI is a thin shell over the engine — every screen reads through catalog connections and engine events, never the filesystem directly, which is what makes the UI swappable (a TUI or web front-end could drive the same engine).</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 760 400" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto" font-family="Inter, sans-serif">
+      <defs>
+        <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="#6c727c"/>
+        </marker>
+      </defs>
+      <!-- GUI layer -->
+      <rect x="20" y="16" width="720" height="78" rx="10" fill="#ffffff" stroke="#e2e2e7"/>
+      <text x="40" y="42" font-size="13" font-weight="700" fill="#2652f8">ipic-app (GUI)</text>
+      <text x="40" y="60" font-size="11.5" fill="#6c727c">egui · browse table · ask panel + mic · floating inspector · settings</text>
+      <text x="40" y="77" font-size="11.5" fill="#6c727c">ipic-cli — the same engine, driven headless</text>
+      <!-- Engine -->
+      <rect x="20" y="122" width="720" height="120" rx="10" fill="#ffffff" stroke="#e2e2e7"/>
+      <text x="40" y="148" font-size="13" font-weight="700" fill="#2652f8">ipic-rag — Engine</text>
+      <text x="40" y="166" font-size="11.5" fill="#6c727c">orchestration · worker pool · event bus · crash-safe job states</text>
+      <rect x="40" y="180" width="160" height="44" rx="7" fill="#f3f3f5"/>
+      <text x="120" y="198" text-anchor="middle" font-size="11" font-weight="600" fill="#181b20">hybrid search</text>
+      <text x="120" y="213" text-anchor="middle" font-size="10" fill="#6c727c">RRF fusion</text>
+      <rect x="212" y="180" width="160" height="44" rx="7" fill="#f3f3f5"/>
+      <text x="292" y="198" text-anchor="middle" font-size="11" font-weight="600" fill="#181b20">whisper transcriber</text>
+      <text x="292" y="213" text-anchor="middle" font-size="10" fill="#6c727c">state pool · beam-5</text>
+      <rect x="384" y="180" width="160" height="44" rx="7" fill="#f3f3f5"/>
+      <text x="464" y="198" text-anchor="middle" font-size="11" font-weight="600" fill="#181b20">acoustic fingerprints</text>
+      <text x="464" y="213" text-anchor="middle" font-size="10" fill="#6c727c">FFT → 128-dim</text>
+      <rect x="556" y="180" width="160" height="44" rx="7" fill="#f3f3f5"/>
+      <text x="636" y="198" text-anchor="middle" font-size="11" font-weight="600" fill="#181b20">vector stores ×2</text>
+      <text x="636" y="213" text-anchor="middle" font-size="10" fill="#6c727c">mmap · i8-quantized</text>
+      <!-- Core -->
+      <rect x="20" y="270" width="720" height="110" rx="10" fill="#ffffff" stroke="#e2e2e7"/>
+      <text x="40" y="296" font-size="13" font-weight="700" fill="#2652f8">ipic-core</text>
+      <text x="40" y="314" font-size="11.5" fill="#6c727c">parallel walker · SQLite/FTS5 catalog · change watcher · config</text>
+      <rect x="40" y="328" width="200" height="38" rx="7" fill="#f3f3f5"/>
+      <text x="140" y="352" text-anchor="middle" font-size="11" font-weight="600" fill="#181b20">catalog.db (SQLite WAL)</text>
+      <rect x="256" y="328" width="200" height="38" rx="7" fill="#f3f3f5"/>
+      <text x="356" y="352" text-anchor="middle" font-size="11" font-weight="600" fill="#181b20">vectors.bin · fingerprints</text>
+      <rect x="472" y="328" width="244" height="38" rx="7" fill="#f3f3f5"/>
+      <text x="594" y="352" text-anchor="middle" font-size="11" font-weight="600" fill="#181b20">~/.ipic/models (bge · whisper)</text>
+      <!-- arrows -->
+      <line x1="380" y1="94" x2="380" y2="118" stroke="#6c727c" stroke-width="1.5" marker-end="url(#arr)"/>
+      <line x1="380" y1="242" x2="380" y2="266" stroke="#6c727c" stroke-width="1.5" marker-end="url(#arr)"/>
+      <text x="392" y="112" font-size="10" fill="#6c727c">channels + catalog readers</text>
+      <text x="392" y="260" font-size="10" fill="#6c727c">calls</text>
+    </svg>
+    <figcaption>Layering: the GUI never touches the filesystem — only the engine and catalog do.</figcaption>
+  </figure>
+</section>
+
+<section id="crates">
+  <h2><span class="num">05</span>The four crates</h2>
+  <table>
+    <tr><th>Crate</th><th>Responsibility</th><th>Key pieces</th></tr>
+    <tr>
+      <td><code>ipic-core</code></td>
+      <td>Filesystem truth: scanning, cataloging, watching.</td>
+      <td>Directory-queue parallel walker (all cores, symlink-safe, skip-list); SQLite catalog in WAL mode with batched upserts; FTS5 full-text index; notify-based debounced watcher that triggers incremental rescans; TOML config scoped to the engine's data directory.</td>
+    </tr>
+    <tr>
+      <td><code>ipic-rag</code></td>
+      <td>Understanding: embeddings, ASR, fingerprints, retrieval, orchestration.</td>
+      <td>Neural embedder (bge-small-en-v1.5 via ONNX Runtime) with a deterministic feature-hashing fallback for offline first-runs; whisper.cpp transcriber (Metal-capable, CPU/Accelerate default) sharing one context across a state pool; pure-Rust acoustic fingerprinting (rustfft); two mmap'd i8-quantized vector stores; hybrid search with weighted reciprocal-rank fusion; the <strong>Engine</strong> — worker threads, event bus, crash-safe Pending/Busy/Done/Failed job states.</td>
+    </tr>
+    <tr>
+      <td><code>ipic-app</code></td>
+      <td>The GUI.</td>
+      <td>egui/eframe with a light minimal theme, embedded Inter + JetBrains Mono + Material Icons; virtualized table with multi-select; unified search bar with mic capture (cpal); floating inspector; settings. Ships as a library + thin binary so tests drive the real app.</td>
+    </tr>
+    <tr>
+      <td><code>ipic-cli</code></td>
+      <td>Headless driver.</td>
+      <td><code>scan</code> (live progress bar, resumable), <code>search</code>, <code>ask --audio</code>, <code>status</code>, <code>list</code>, <code>config</code>.</td>
+    </tr>
+  </table>
+</section>
+
+<section id="pipeline">
+  <h2><span class="num">06</span>Indexing pipeline</h2>
+  <p>Background, resumable, and crash-safe. A file's lifecycle in the catalog is an explicit state machine — <span class="pill blue">Pending</span> → <span class="pill amber">Busy</span> → <span class="pill green">Done</span> / <span class="pill" style="background:#fbe3e3;color:var(--danger)">Failed</span> — persisted in SQLite so an interrupted run resumes cleanly on next launch (Busy rows reset to Pending at open).</p>
+  <ol>
+    <li><strong>Scan</strong> — a shared directory queue feeds one worker per CPU core; discovered entries stream over a channel to a single-writer collector that batches upserts into SQLite (8k rows/tx). Each directory is registered on arrival so child files always resolve their parent.</li>
+    <li><strong>Claim</strong> — extraction workers self-serve jobs from the catalog with an atomic <code>UPDATE … RETURNING</code> claim (natural backpressure). Two lanes: a fast lane for text/PDF/images, a slow lane for audio/video gated by a semaphore sized to the whisper state pool.</li>
+    <li><strong>Extract</strong> — text files are read (UTF-8 validated, size-capped); PDFs go through a panic-guarded extractor (malformed PDFs are contained, marked Failed); images produce a filename + folder-context pseudo-document; audio/video are decoded to 16 kHz mono PCM (ffmpeg pipe when available, else pure-Rust symphonia).</li>
+    <li><strong>Transcribe</strong> (media lane) — whisper with beam-search decoding; duration is recorded; a 128-dim acoustic fingerprint is computed from the same PCM and stored in the fingerprint vector store.</li>
+    <li><strong>Chunk</strong> — ~320-word windows with a 24-word overlap so boundary context stays searchable.</li>
+    <li><strong>Embed</strong> — a dedicated writer thread batches up to 64 chunks through the ONNX embedder (intra-op pool sized to leave headroom for the other pools) and persists FTS5 rows + quantized vectors transactionally, then flips files to Done.</li>
+  </ol>
+  <p class="note">A notify-based watcher follows the scan: created/modified files are re-upserted (changed size or mtime resets the file to Pending), deletions purge rows and free both vector-slot spaces, and changed subtrees get incremental rescans.</p>
+</section>
+
+<section id="storage">
+  <h2><span class="num">07</span>Storage formats</h2>
+  <p>Everything lives under <code>~/.ipic/</code>. Nothing is opaque — each artifact is a standard format you can inspect.</p>
+  <table>
+    <tr><th>Artifact</th><th>Format</th><th>Contents</th></tr>
+    <tr><td><code>catalog.db</code></td><td>SQLite, WAL, 64 MB page cache, mmap'd reads</td><td><code>dirs</code> tree, <code>files</code> (kind, size, mtime, duration, RAG status), <code>chunks</code> FTS5 table (porter + unicode61 tokenizer), <code>audio_fingerprints</code> slot map.</td></tr>
+    <tr><td><code>vectors.bin</code></td><td>Custom flat file, memory-mapped</td><td>64-byte header (magic, dim, model hash, count) + fixed 396-byte records: <code>chunk_rowid u64 · scale f32 · 384 × i8</code>. Symmetric quantization; slots are recycled through a free-list; tombstones mark freed middles.</td></tr>
+    <tr><td><code>audio-fingerprints/vectors.bin</code></td><td>Same container, 128-dim</td><td>One record per media file keyed by file id — the acoustic lane's search space.</td></tr>
+    <tr><td><code>models/</code></td><td>ONNX + ggml</td><td>bge-small-en-v1.5 (384-dim) and whisper small.en q5_1, both cached locally after one download.</td></tr>
+    <tr><td><code>config.toml</code></td><td>TOML</td><td>Roots, skip-list, whisper model + workers + GPU toggle, embedder choice, batch sizes. Scoped per data directory, so test engines never touch your real config.</td></tr>
+  </table>
+  <h3>Why i8 quantization</h3>
+  <p>Vectors are stored one byte per component — 4× smaller than f32 — and scanned as pure integer dot products that the compiler auto-vectorizes with NEON. The mmap means the resident cost of the index is near zero: the OS page cache serves scans, and only hot pages stay in RAM. Ranking accuracy loss versus f32 is negligible for retrieval.</p>
+</section>
+
+<section id="search">
+  <h2><span class="num">08</span>Search internals</h2>
+  <p>One query, four retrieval lanes, fused by weighted reciprocal-rank fusion:</p>
+  <figure class="diagram">
+    <svg viewBox="0 0 760 210" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto" font-family="Inter, sans-serif">
+      <defs><marker id="arr2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#6c727c"/></marker></defs>
+      <rect x="20" y="20" width="200" height="52" rx="8" fill="#e2e9ff"/>
+      <text x="120" y="42" text-anchor="middle" font-size="12" font-weight="700" fill="#2652f8">semantic lane · w 1.0</text>
+      <text x="120" y="58" text-anchor="middle" font-size="10.5" fill="#6c727c">bge-small · i8 top-k over mmap</text>
+      <rect x="20" y="84" width="200" height="52" rx="8" fill="#ffffff" stroke="#e2e2e7"/>
+      <text x="120" y="106" text-anchor="middle" font-size="12" font-weight="700" fill="#181b20">keyword lane · w 0.7</text>
+      <text x="120" y="122" text-anchor="middle" font-size="10.5" fill="#6c727c">FTS5 BM25 + snippet()</text>
+      <rect x="20" y="148" width="200" height="52" rx="8" fill="#ffffff" stroke="#e2e2e7"/>
+      <text x="120" y="170" text-anchor="middle" font-size="12" font-weight="700" fill="#181b20">filename lane · w 0.5</text>
+      <text x="120" y="186" text-anchor="middle" font-size="10.5" fill="#6c727c">escaped LIKE, mtime-ranked</text>
+      <rect x="20" y="84" width="0" height="0"/>
+      <rect x="300" y="84" width="180" height="52" rx="8" fill="#e3f3ec"/>
+      <text x="390" y="106" text-anchor="middle" font-size="12" font-weight="700" fill="#168a5a">acoustic lane · w 0.9</text>
+      <text x="390" y="122" text-anchor="middle" font-size="10.5" fill="#6c727c">audio queries only — fingerprint match</text>
+      <rect x="540" y="66" width="200" height="88" rx="10" fill="#ffffff" stroke="#e2e2e7"/>
+      <text x="640" y="98" text-anchor="middle" font-size="12.5" font-weight="700" fill="#181b20">RRF fusion</text>
+      <text x="640" y="117" text-anchor="middle" font-size="10.5" fill="#6c727c">score = Σ wᵢ / (60 + rankᵢ)</text>
+      <text x="640" y="134" text-anchor="middle" font-size="10.5" fill="#6c727c">best snippet per file · re-rank</text>
+      <line x1="220" y1="46" x2="536" y2="92" stroke="#6c727c" stroke-width="1.5" marker-end="url(#arr2)"/>
+      <line x1="220" y1="110" x2="536" y2="108" stroke="#6c727c" stroke-width="1.5" marker-end="url(#arr2)"/>
+      <line x1="220" y1="174" x2="536" y2="126" stroke="#6c727c" stroke-width="1.5" marker-end="url(#arr2)"/>
+      <line x1="480" y1="110" x2="536" y2="110" stroke="#6c727c" stroke-width="1.5" marker-end="url(#arr2)"/>
+    </svg>
+    <figcaption>Lanes run independently; per-file ranks fuse into one list. Result cards badge the lanes that contributed.</figcaption>
+  </figure>
+  <ul>
+    <li><strong>Query path:</strong> embed query → parallel integer top-k over the mmap'd store (4096-record shards, partial top-k per shard, merge) → hydrate chunk rows → aggregate per file.</li>
+    <li><strong>Safety:</strong> FTS5 MATCH expressions are built from quoted words only — no operator injection; LIKE patterns escape wildcards.</li>
+    <li><strong>Spoken queries</strong> add the acoustic lane and display the interpreted transcript (“🎙 heard: …”).</li>
+  </ul>
+</section>
+
+<section id="audio">
+  <h2><span class="num">09</span>Audio-to-audio matching</h2>
+  <p>Text embeddings can't hum. For direct sound-to-sound similarity, every audio/video file gets a <strong>128-dimensional acoustic fingerprint</strong> at index time, computed from the same decoded PCM the transcriber sees:</p>
+  <ol>
+    <li>Hann-windowed 1024-sample frames, 512 hop → FFT (rustfft, pure Rust).</li>
+    <li>Power spectrum folded into 64 log-spaced bands (80 Hz – 7.6 kHz), log-compressed.</li>
+    <li>Two statistic halves per band — <strong>spectral shape</strong> (mean log-energy) and <strong>spectral flux</strong> (frame-to-frame change RMS) — each unit-normalized separately so timbre and dynamics weigh equally.</li>
+  </ol>
+  <p>Similarity is the cosine between query and indexed fingerprints: the same recording re-encoded, trimmed, or re-mastered matches strongly; the metric degrades gracefully toward “sounds alike”. Tests pin self-similarity ≈ 2.0 (two unit halves) and separate spectrally distinct material well below 0.8× self.</p>
+</section>
+
+<section id="threads">
+  <h2><span class="num">10</span>Threads &amp; cores</h2>
+  <table>
+    <tr><th>Pool</th><th>Size</th><th>Role</th></tr>
+    <tr><td>Walker</td><td>1 / CPU core</td><td>Directory-queue traversal during scans.</td></tr>
+    <tr><td>Extraction workers</td><td>cores − 2</td><td>Self-serve claim/extract/transcribe; fast lane first, media lane semaphore-gated.</td></tr>
+    <tr><td>Whisper states</td><td>configurable (default 3)</td><td>Shared ggml context; cores/state threads split the CPU; CPU/Accelerate path parallelizes, optional Metal path serializes on one state.</td></tr>
+    <tr><td>Embed writer</td><td>1</td><td>Batched ONNX inference (intra-op pool = cores/2, leaving headroom so ORT spin-waits never starve).</td></tr>
+    <tr><td>Top-k scan</td><td>rayon (all cores)</td><td>Sharded integer dot products over the mmap.</td></tr>
+  </table>
+  <p class="note">Model hash mismatches (embedder swap) trigger a wipe-and-reindex of derived data automatically; freed slots recycle; tombstones keep stale rowids out of results.</p>
+</section>
+
+<!-- ======================= GUI ======================= -->
+<section id="gui">
+  <h2><span class="num">11</span>The GUI</h2>
+  <p>Native egui, single process, GPU-rendered, ~60 MB resident. Light minimal theme: near-white canvas, hairline borders, one electric-blue accent, Inter typography, Material Icons throughout.</p>
+  <ul>
+    <li><strong>Top bar</strong> — back / forward / up, clickable breadcrumbs, and the unified search box with mic button and ⌘F focus.</li>
+    <li><strong>Sidebar</strong> — locations (roots), kind filters with live counts, and a lazy-expanding directory tree.</li>
+    <li><strong>Toolbar</strong> — new folder, rescan, kind chips, Large (&gt;100 MB) / Recent (30 days) toggles, sort key + direction.</li>
+    <li><strong>Table</strong> — virtualized for huge folders; status dot before each icon; multi-select with ⌘/⇧/⌘A; double-click opens; right-click menu performs bulk open / reveal / copy paths / duplicate / trash.</li>
+    <li><strong>Floating inspector</strong> — appears only while a row is selected: metadata, indexed-content preview, image preview, quick actions. Deliberately a floating window: an appearing side panel re-flows the table and used to close open context menus.</li>
+    <li><strong>Footer</strong> — index health (files, vectors, cores) on the left; progress cluster (fraction bar + spinner) on the right.</li>
+  </ul>
+</section>
+
+<section id="shortcuts">
+  <h2><span class="num">12</span>Keyboard shortcuts</h2>
+  <table>
+    <tr><th>Shortcut</th><th>Action</th></tr>
+    <tr><td><span class="kbd">⌘</span><span class="kbd">F</span></td><td>Focus the search box</td></tr>
+    <tr><td><span class="kbd">Enter</span> (in search box)</td><td>Run the multimodal search</td></tr>
+    <tr><td><span class="kbd">Esc</span></td><td>Leave search and return to the pre-search folder; cancel inline editors and dialogs</td></tr>
+    <tr><td><span class="kbd">↑</span> <span class="kbd">↓</span></td><td>Move the row selection</td></tr>
+    <tr><td><span class="kbd">Enter</span> (on a row)</td><td>Open the selection (or enter a folder)</td></tr>
+    <tr><td><span class="kbd">⌘</span><span class="kbd">A</span></td><td>Select all visible rows</td></tr>
+    <tr><td><span class="kbd">⌘</span><span class="kbd">⌫</span></td><td>Move selection to trash</td></tr>
+    <tr><td><span class="kbd">⌘</span><span class="kbd">↑</span></td><td>Reveal selection in Finder</td></tr>
+    <tr><td><span class="kbd">⌘</span>-click / <span class="kbd">⇧</span>-click</td><td>Toggle / range-select rows</td></tr>
+  </table>
+</section>
+
+<!-- ======================= CONFIG ======================= -->
+<section id="config">
+  <h2><span class="num">13</span>Configuration</h2>
+  <p><code>~/.ipic/config.toml</code> — editable by hand or via <code>ipic-cli config</code> / the settings window. Root changes take effect on the next rescan without a restart.</p>
+<pre><code><span class="n">roots</span>            = [<span class="s">"/Users/you/Downloads"</span>]   <span class="c"># indexed scopes</span>
+<span class="n">skip_dir_names</span>   = [<span class="s">".Trash"</span>, <span class="s">"Library"</span>, <span class="s">"node_modules"</span>, …]
+<span class="n">whisper_model</span>    = <span class="s">"small.en-q5_1"</span>   <span class="c"># tiny/base/small × .en/multilingual, q5_1</span>
+<span class="n">whisper_workers</span>  = <span class="k">3</span>                    <span class="c"># concurrent decode states (CPU path)</span>
+<span class="n">whisper_use_gpu</span>  = <span class="k">false</span>                <span class="c"># Metal: fastest, serializes on one state</span>
+<span class="n">embedder</span>         = <span class="s">"neural"</span>             <span class="c"># or "hashing" — offline lexical fallback</span>
+<span class="n">embed_batch</span>      = <span class="k">64</span>                   <span class="c"># chunks per ONNX batch</span>
+<span class="n">max_text_mb</span>      = <span class="k">8</span>                    <span class="c"># per-file extraction cap</span></code></pre>
+</section>
+
+<section id="cli">
+  <h2><span class="num">14</span>CLI reference</h2>
+  <table>
+    <tr><th>Command</th><th>Purpose</th></tr>
+    <tr><td><code>ipic-cli scan [--root PATH] [--watch]</code></td><td>Index all roots; resumable; live progress bar; <code>--watch</code> keeps running to track filesystem changes.</td></tr>
+    <tr><td><code>ipic-cli search QUERY [--limit N]</code></td><td>Unified multimodal search; prints lane badges, scores and snippets.</td></tr>
+    <tr><td><code>ipic-cli ask --audio FILE [--limit N]</code></td><td>Audio query: local transcription + acoustic matching, fused.</td></tr>
+    <tr><td><code>ipic-cli status</code></td><td>Files, pending/done/failed counters, vectors, models, cores.</td></tr>
+    <tr><td><code>ipic-cli list [DIR] [--kind K] [--limit N]</code></td><td>Directory listing with metadata from the catalog.</td></tr>
+    <tr><td><code>ipic-cli config [--set-roots PATHS…]</code></td><td>Print or edit the effective configuration.</td></tr>
+  </table>
+</section>
+
+<section id="testing">
+  <h2><span class="num">15</span>Testing strategy</h2>
+  <p>59 tests across the workspace, including <strong>50 UI tests that drive the real application</strong> with synthetic mouse and keyboard input via egui_kittest — clicks are emitted with real-input semantics (press and release in separate frames, 1 ms simulated clock so double-click windows hold).</p>
+  <ul>
+    <li><strong>Unit</strong> — chunker bounds, resampler, FTS5 quoting, vector-store round-trip (append → top-k self-match → free/reuse), fingerprint self-similarity and separation.</li>
+    <li><strong>Integration</strong> — full scan → catalog → embed → hybrid-search flow on a synthetic corpus with the deterministic hashing embedder (hermetic: temp data directories, no model downloads).</li>
+    <li><strong>UI suites</strong> — search (Enter/Esc/filtering/no-results), navigation (breadcrumbs, history, tree, library structure), file operations (rename/duplicate/trash/new-folder against a real temp filesystem), toolbar (sorting, filters, settings, rescan), interaction (select, double-click open, right-click menu, Enter open).</li>
+    <li><strong>Seams</strong> — open/reveal actions are injectable, so tests assert routing without spawning Finder; engines launched against temp directories never touch your real config or index (verified byte-identical after full suite runs).</li>
+  </ul>
+</section>
+
+<section id="privacy">
+  <h2><span class="num">16</span>Privacy model</h2>
+  <div class="card">
+    <p style="margin-bottom:8px"><strong>Nothing leaves this machine. Ever.</strong></p>
+    <ul>
+      <li>Both models run locally (ONNX Runtime / whisper.cpp) and are cached after one download.</li>
+      <li>No analytics, no telemetry, no network code beyond the initial model fetch (and the optional update path you trigger yourself).</li>
+      <li>All derived data — transcripts, embeddings, fingerprints — lives in <code>~/.ipic/</code> as inspectable SQLite and flat files. Delete the directory and every trace is gone.</li>
+    </ul>
+  </div>
+</section>
+
+<section id="limits">
+  <h2><span class="num">17</span>Limits &amp; roadmap</h2>
+  <ul>
+    <li><strong>Speech-centric audio.</strong> Non-speech sound (music, ambience) matches acoustically and by metadata, but has no semantic representation yet — a CLAP-style encoder is the natural extension, and the per-modality store design slots it in without pipeline changes.</li>
+    <li><strong>Image search is name+context based.</strong> Content-based image retrieval (CLIP) would follow the same two-store pattern.</li>
+    <li><strong>Flat vector index.</strong> Exact integer scan is optimal to a few million vectors (~30 ms at 2 M × 384-dim on one core, faster across cores); HNSW becomes worthwhile beyond that.</li>
+    <li><strong>Rename/move propagation</strong> relies on the watcher's incremental rescan — instant in practice, eventually-consistent by design.</li>
+    <li><strong>Future:</strong> edge-AI targets (the core crates are dependency-light by design), mobile companions sharing the catalog format, per-modality model swaps via config.</li>
+  </ul>
+</section>
+
+<footer>
+  ◆ ipic — on-device multimodal file intelligence. Rust workspace · bge-small-en-v1.5 · whisper small.en q5_1 · SQLite/FTS5 · egui. This guide reflects the current <code>main</code> branch.
+</footer>
+
+</main>
+</div>
+</body>
+</html>
