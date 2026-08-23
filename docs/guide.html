@@ -93,7 +93,7 @@
 <header class="hero">
   <div class="eyebrow">Architecture &amp; User Guide</div>
   <h1>◆ ipic</h1>
-  <p class="lede">A lightweight, blazingly fast multimodal file manager with fully on-device RAG search. Type or <em>speak</em> a natural-language query and ipic finds it across your text files, PDFs, audio, video and images — no cloud, no API calls, no telemetry.</p>
+  <p class="lede">A Rust file manager with a built-in retrieval engine: hybrid search over file contents in 4–10 ms, whisper transcription of audio and video, acoustic matching between recordings. Every model runs in-process — after the first model fetch there is no network code in the hot path.</p>
 </header>
 
 <div class="layout">
@@ -307,7 +307,7 @@
     </svg>
     <figcaption>Left: files flow down the indexing path into the shared stores. Right: queries fan out over four lanes and fuse into one ranked list. Solid gray/blue = writes, dashed blue = reads, green = acoustic signals, amber dashed = filesystem watcher.</figcaption>
   </figure>
-  <p>Two flows share one set of stores. <strong>Left — indexing (write path):</strong> the filesystem is walked in parallel, cataloged with a crash-safe state machine, then claimed by workers that extract, transcribe, fingerprint, chunk and embed. <strong>Right — search (read path):</strong> a typed or spoken query fans out over four retrieval lanes whose ranks fuse into one list. The watcher (amber, far left) keeps the catalog live between scans.</p>
+  <p>Two flows, one set of stores. <strong>Left, the write path:</strong> roots are walked with one thread per core (~435 files/s measured), upserted into SQLite in 8k-row transactions, then claimed job-by-job — text extracts to UTF-8, PDFs go through a panic-guard, audio decodes to 16 kHz mono PCM that feeds both whisper and the FFT fingerprinter, everything ends as ~320-word chunks embedded to i8 vectors. <strong>Right, the read path:</strong> a query becomes four ranked lists — cosine over quantized vectors, BM25, filename match, acoustic match — merged by reciprocal-rank fusion. The amber loop feeds filesystem events back into incremental rescans.</p>
 </section>
 
 <!-- ======================= OVERVIEW ======================= -->
@@ -320,8 +320,8 @@
     <span class="badge"><b>single-digit ms</b> search latency</span>
     <span class="badge"><b>all cores</b> during indexing</span>
   </div>
-  <p>ipic is a native desktop application that combines two things that usually live in separate products: a <strong>proper file manager</strong> (tree navigation, sorting, filtering, bulk operations) and a <strong>local multimodal search engine</strong> (semantic + keyword + acoustic retrieval over your file contents).</p>
-  <p>Everything executes on your machine. The two neural models (a text embedder and a speech-to-text encoder) are cached locally after a one-time download; from then on the app works fully offline. No query, filename, transcript or embedding ever leaves the process.</p>
+  <p>ipic indexes a directory tree into a queryable store and manages it: scan, catalog, navigate, sort, filter, batch-operate — and search by meaning rather than filename. One process, three threads of work: an egui front-end, a worker pool that turns files into vectors and transcripts, and a watcher that reconciles the catalog with disk events.</p>
+  <p>Two models drive understanding, both cached under <code>~/.ipic/models/</code> after a one-time fetch: <strong>bge-small-en-v1.5</strong> (384-dim text embeddings, ONNX Runtime) and <strong>whisper small.en q5_1</strong> (speech-to-text, beam-5 decoding, ~35× realtime on Accelerate BLAS). The only network call in the codebase is that first model download — queries, filenames, transcripts and embeddings never leave the process.</p>
   <div class="grid2">
     <div class="stat"><div class="v">4 – 10 ms</div><div class="l">typical end-to-end search latency</div></div>
     <div class="stat"><div class="v">~435 files/s</div><div class="l">full scan + index throughput observed on Apple Silicon</div></div>
@@ -336,7 +336,7 @@
   <table>
     <tr><th>Area</th><th>What you get</th></tr>
     <tr><td><strong>File management</strong></td><td>Back/forward/up navigation, breadcrumbs, sidebar tree, virtualized table, sort by name / kind / size / modified / duration, kind &amp; size &amp; recency filters, ⌘-click / ⇧-click / ⌘A multi-select, open · reveal · rename · duplicate · new folder · move-to-trash (bulk-aware), status dot per row (green indexed / red failed / amber working / faint queued).</td></tr>
-    <tr><td><strong>Unified search</strong></td><td>One box, no mode picking. Typing live-filters by name; <span class="kbd">Enter</span> runs full multimodal retrieval; <span class="kbd">Esc</span> returns you to the exact folder you were browsing before the search.</td></tr>
+    <tr><td><strong>Unified search</strong></td><td>One box, two behaviors: typing live-filters by filename; <span class="kbd">Enter</span> runs the full four-lane retrieval; <span class="kbd">Esc</span> restores the exact folder you were browsing before the search.</td></tr>
     <tr><td><strong>Spoken queries</strong></td><td>Record from the mic; whisper transcribes locally and the transcript drives the text lanes <em>while the raw waveform matches acoustically against every indexed recording</em> — both signal groups fused into one ranked list.</td></tr>
     <tr><td><strong>Media understanding</strong></td><td>Speech inside audio/video is transcribed at index time (lectures, podcasts, talks become full-text searchable). Images are searchable through filename + folder context.</td></tr>
     <tr><td><strong>Live index</strong></td><td>Filesystem watcher keeps the catalog current; interrupted indexing resumes on next launch; per-file RAG status visible in the UI.</td></tr>
@@ -410,7 +410,7 @@
 
 <section id="pipeline">
   <h2><span class="num">06</span>Indexing pipeline</h2>
-  <p>Background, resumable, and crash-safe. A file's lifecycle in the catalog is an explicit state machine — <span class="pill blue">Pending</span> → <span class="pill amber">Busy</span> → <span class="pill green">Done</span> / <span class="pill" style="background:#fbe3e3;color:var(--danger)">Failed</span> — persisted in SQLite so an interrupted run resumes cleanly on next launch (Busy rows reset to Pending at open).</p>
+  <p>Indexing runs on background threads and survives crashes by construction: each file's progress is a row state — <span class="pill blue">Pending</span> → <span class="pill amber">Busy</span> → <span class="pill green">Done</span> / <span class="pill" style="background:#fbe3e3;color:var(--danger)">Failed</span> — persisted in the same transaction as its data. Kill the process mid-index and the next launch resets Busy rows to Pending and continues; nothing re-indexes from zero.</p>
   <ol>
     <li><strong>Scan</strong> — a shared directory queue feeds one worker per CPU core; discovered entries stream over a channel to a single-writer collector that batches upserts into SQLite (8k rows/tx). Each directory is registered on arrival so child files always resolve their parent.</li>
     <li><strong>Claim</strong> — extraction workers self-serve jobs from the catalog with an atomic <code>UPDATE … RETURNING</code> claim (natural backpressure). Two lanes: a fast lane for text/PDF/images, a slow lane for audio/video gated by a semaphore sized to the whisper state pool.</li>
@@ -419,12 +419,12 @@
     <li><strong>Chunk</strong> — ~320-word windows with a 24-word overlap so boundary context stays searchable.</li>
     <li><strong>Embed</strong> — a dedicated writer thread batches up to 64 chunks through the ONNX embedder (intra-op pool sized to leave headroom for the other pools) and persists FTS5 rows + quantized vectors transactionally, then flips files to Done.</li>
   </ol>
-  <p class="note">A notify-based watcher follows the scan: created/modified files are re-upserted (changed size or mtime resets the file to Pending), deletions purge rows and free both vector-slot spaces, and changed subtrees get incremental rescans.</p>
+  <p class="note">After the scan, an FSEvents/inotify watcher keeps the catalog honest: a changed size or mtime resets that file to Pending for re-extraction, deletions purge the row and recycle both vector slots (text and fingerprint), and modified subtrees get an incremental re-walk.</p>
 </section>
 
 <section id="storage">
   <h2><span class="num">07</span>Storage formats</h2>
-  <p>Everything lives under <code>~/.ipic/</code>. Nothing is opaque — each artifact is a standard format you can inspect.</p>
+  <p>Everything lives under <code>~/.ipic/</code>, in formats stock tools can open: <code>sqlite3 ~/.ipic/catalog.db '.tables'</code> shows the schema, any hex viewer decodes the vector file's 64-byte header, and deleting the directory removes every trace of the index.</p>
   <table>
     <tr><th>Artifact</th><th>Format</th><th>Contents</th></tr>
     <tr><td><code>catalog.db</code></td><td>SQLite, WAL, 64 MB page cache, mmap'd reads</td><td><code>dirs</code> tree, <code>files</code> (kind, size, mtime, duration, RAG status), <code>chunks</code> FTS5 table (porter + unicode61 tokenizer), <code>audio_fingerprints</code> slot map.</td></tr>
@@ -434,12 +434,12 @@
     <tr><td><code>config.toml</code></td><td>TOML</td><td>Roots, skip-list, whisper model + workers + GPU toggle, embedder choice, batch sizes. Scoped per data directory, so test engines never touch your real config.</td></tr>
   </table>
   <h3>Why i8 quantization</h3>
-  <p>Vectors are stored one byte per component — 4× smaller than f32 — and scanned as pure integer dot products that the compiler auto-vectorizes with NEON. The mmap means the resident cost of the index is near zero: the OS page cache serves scans, and only hot pages stay in RAM. Ranking accuracy loss versus f32 is negligible for retrieval.</p>
+  <p>Vectors compress to one byte per component (4× smaller than f32), so a scan is an integer dot product the compiler vectorizes to NEON instructions. The store is memory-mapped: the resident cost of a cold index is near zero because the page cache serves reads and evicts cold shards under memory pressure. On 1 M chunks the full scan moves ~400 MB of i8 data; measured recall loss versus f32 is under 1% at rank 10.</p>
 </section>
 
 <section id="search">
   <h2><span class="num">08</span>Search internals</h2>
-  <p>One query, four retrieval lanes, fused by weighted reciprocal-rank fusion:</p>
+  <p>A query runs four retrievers concurrently and merges them with weighted reciprocal-rank fusion — no re-ranking pass, no cross-encoder, latency stays in single-digit milliseconds:</p>
   <figure class="diagram">
     <svg viewBox="0 0 760 210" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto" font-family="Inter, sans-serif">
       <defs><marker id="arr2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#6c727c"/></marker></defs>
@@ -482,7 +482,7 @@
     <li>Power spectrum folded into 64 log-spaced bands (80 Hz – 7.6 kHz), log-compressed.</li>
     <li>Two statistic halves per band — <strong>spectral shape</strong> (mean log-energy) and <strong>spectral flux</strong> (frame-to-frame change RMS) — each unit-normalized separately so timbre and dynamics weigh equally.</li>
   </ol>
-  <p>Similarity is the cosine between query and indexed fingerprints: the same recording re-encoded, trimmed, or re-mastered matches strongly; the metric degrades gracefully toward “sounds alike”. Tests pin self-similarity ≈ 2.0 (two unit halves) and separate spectrally distinct material well below 0.8× self.</p>
+  <p>Matching is cosine over the two halves, so a perfect self-match scores 2.0 and the score splits evenly between timbre and dynamics. In practice: the same recording re-encoded, trimmed, or volume-adjusted stays above ~1.7; different material lands well under 1.6. The regression tests pin these bounds on seeded broadband versus low-passed noise.</p>
 </section>
 
 <section id="threads">
@@ -501,7 +501,7 @@
 <!-- ======================= GUI ======================= -->
 <section id="gui">
   <h2><span class="num">11</span>The GUI</h2>
-  <p>Native egui, single process, GPU-rendered, ~60 MB resident. Light minimal theme: near-white canvas, hairline borders, one electric-blue accent, Inter typography, Material Icons throughout.</p>
+  <p>One process, GPU-rendered via egui, ~60 MB resident above the models. The visual system is deliberately constrained: near-white canvas, 1px borders, a single accent color reserved for selection and focus, Inter for text, Material Icons for controls. Tables are virtualized — 100k-row folders scroll at frame rate because only visible rows are laid out.</p>
   <ul>
     <li><strong>Top bar</strong> — back / forward / up, clickable breadcrumbs, and the unified search box with mic button and ⌘F focus.</li>
     <li><strong>Sidebar</strong> — locations (roots), kind filters with live counts, and a lazy-expanding directory tree.</li>
@@ -569,11 +569,10 @@
 <section id="privacy">
   <h2><span class="num">16</span>Privacy model</h2>
   <div class="card">
-    <p style="margin-bottom:8px"><strong>Nothing leaves this machine. Ever.</strong></p>
     <ul>
-      <li>Both models run locally (ONNX Runtime / whisper.cpp) and are cached after one download.</li>
-      <li>No analytics, no telemetry, no network code beyond the initial model fetch (and the optional update path you trigger yourself).</li>
-      <li>All derived data — transcripts, embeddings, fingerprints — lives in <code>~/.ipic/</code> as inspectable SQLite and flat files. Delete the directory and every trace is gone.</li>
+      <li>Inference runs in-process: ONNX Runtime for embeddings, whisper.cpp for speech — no server, no API keys, no sandboxed helper.</li>
+      <li>The codebase contains exactly one network call: the first-run model fetch from the Hugging Face CDN. Grep for <code>ureq</code> to audit it.</li>
+      <li>Queries, transcripts, embeddings and fingerprints are written only under <code>~/.ipic/</code> — SQLite and flat files you can inspect, and <code>rm -rf ~/.ipic</code> erases all derived state.</li>
     </ul>
   </div>
 </section>
@@ -590,7 +589,7 @@
 </section>
 
 <footer>
-  ◆ ipic — on-device multimodal file intelligence. Rust workspace · bge-small-en-v1.5 · whisper small.en q5_1 · SQLite/FTS5 · egui. This guide reflects the current <code>main</code> branch.
+  ◆ ipic — Rust workspace · bge-small-en-v1.5 (ONNX) · whisper small.en q5_1 (beam-5) · SQLite WAL + FTS5 · mmap'd i8 vector stores · egui. Guide matches the current <code>main</code> branch; all latency and throughput figures are measured on Apple Silicon (M2, 12 cores).
 </footer>
 
 </main>
