@@ -217,16 +217,14 @@ impl ComputeConfig {
         let logical = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4);
         let physical = (logical / 2).max(1);
         let cap = if self.max_cores == 0 { logical } else { self.max_cores.min(logical) };
-        let at_least_one = |value: usize| value.max(1);
+        let at_least = |minimum: usize, value: usize| value.clamp(minimum, cap);
         ComputeBudget {
-            scan_threads: at_least_one(if self.scan_threads == 0 { cap } else { self.scan_threads.min(cap) }),
+            scan_threads: at_least(1, if self.scan_threads == 0 { cap } else { self.scan_threads }),
             // Leave one core for the UI compositor; everything else extracts.
-            extract_workers: at_least_one(
-                if self.extract_workers == 0 { cap.saturating_sub(1).max(2) } else { self.extract_workers.min(cap) },
-            ),
-            // ONNX intra-op shares the machine with the decode workers.
-            ort_threads: at_least_one(if self.ort_threads == 0 { physical } else { self.ort_threads.min(cap) }),
-            search_threads: at_least_one(if self.search_threads == 0 { cap } else { self.search_threads.min(cap) }),
+            extract_workers: at_least(3, if self.extract_workers == 0 { cap.saturating_sub(1) } else { self.extract_workers }),
+            // Four cores minimum of ONNX inference: this app exists to index.
+            ort_threads: at_least(4, if self.ort_threads == 0 { physical } else { self.ort_threads }),
+            search_threads: at_least(1, if self.search_threads == 0 { cap } else { self.search_threads }),
         }
     }
 }
@@ -240,7 +238,7 @@ impl Default for Config {
                 "__pycache__", "target", "dist", ".npm", ".cargo", ".rustup", ".docker",
             ].iter().map(|s| s.to_string()).collect(),
             whisper_model: "small.en-q5_1".into(),
-            whisper_workers: 3,
+            whisper_workers: 4,
             whisper_use_gpu: false,
             embedder: default_embedder(),
             image_embedder: default_image_embedder(),

@@ -923,12 +923,17 @@ fn spawn_extraction_workers(engine: &Arc<Engine>) {
                     return;
                 }
                 if local_queue.is_empty() {
-                    let fast = claim_jobs(&worker_engine, &[FileKind::Text, FileKind::Pdf])
-                        .or_else(|| {
-                            (worker_engine.vision_ready() || worker_engine.vision.is_none())
-                                .then(|| claim_jobs(&worker_engine, &[FileKind::Image]))
-                                .flatten()
-                        })
+                    // One fast lane mixing text/PDF/images: strict priority
+                    // would starve 100k-image corpora behind 100k text files.
+                    // With vision configured but still loading, images wait.
+                    let vision_off_or_ready =
+                        worker_engine.vision.is_none() || worker_engine.vision_ready();
+                    let fast_kinds: &[FileKind] = if vision_off_or_ready {
+                        &[FileKind::Text, FileKind::Pdf, FileKind::Image]
+                    } else {
+                        &[FileKind::Text, FileKind::Pdf]
+                    };
+                    let fast = claim_jobs(&worker_engine, fast_kinds)
                         .or_else(|| claim_jobs(&worker_engine, &[FileKind::Audio, FileKind::Video]));
                     match fast {
                         Some(jobs) => local_queue = jobs,
