@@ -4,6 +4,10 @@ A lightweight, blazingly fast multimodal file manager with **fully on-device RAG
 Type or *speak* a natural-language query and ipic finds it across your text files, PDFs,
 images, audio recordings and videos — no cloud, no API calls, no telemetry.
 
+| | |
+|---|---|
+| ![browse](docs/img/ipic-browse.png) | ![search](docs/img/ipic-search.png) |
+
 ```
 ◆ ipic     Browse ‹ › ↑  documents › notes                Ask | ◧ | ⚙
 ┌────────────┬──────────────────────────────────────────┬─────────────┐
@@ -26,8 +30,8 @@ images, audio recordings and videos — no cloud, no API calls, no telemetry.
   four lanes — dense **semantic** vectors (bge-small-en-v1.5 via ONNX),
   **vision** vectors (CLIP: query text and image pixels share one latent
   space), **BM25 keyword** (SQLite FTS5), and **filename** match — merged with
-  weighted reciprocal rank fusion. Typical latency: single-digit milliseconds
-  at ~10⁵ files.
+  weighted reciprocal rank fusion. Typical latency: ~30 ms with models
+  resident (most of it embedding the query; the vector scan is sub-ms).
 - **Content-based image search** — every image is decoded, downsampled to CLIP
   input and embedded by pixel content. "sunset over water" finds your beach
   photographs with no filename hints. HEIC/HEIF/AVIF decode through ffmpeg
@@ -69,10 +73,49 @@ and delete/update churn is free — the exact properties a file index needs.
 HNSW (usearch) wins past ~10 M vectors or on single-core-constrained devices,
 but pays graph-build time during first-run indexing and degrades under
 constant file churn. The `VectorStore` API is the swap seam if that crossover
-is ever reached; measured query latency at full-home scale lives in the
+is ever reached; measured query latency lives in the
 section below.
 
 ## Architecture
+
+```
+                        ┌──────────────────────────── Engine (supervisor) ───────────────────────────┐
+                        │  shared models: bge-small (text) · CLIP ViT-B/32 (vision) · whisper (ASR) │
+                        │  [compute] budget · progress/ETA · persistent fs watcher                  │
+                        └───┬──────────────┬──────────────┬──────────────┬──────────────┬───────────┘
+                            ▼              ▼              ▼              ▼              ▼
+                     ┌──────────┐   ┌──────────┐   ┌──────────┐   ┌──────────┐   ┌──────────┐
+   ~/Downloads  ───▶ │  shard   │   │  shard   │   │  shard   │   │  shard   │   │  shard   │
+   ~/Documents  ───▶ │ catalog  │   │ catalog  │   │ catalog  │   │ catalog  │   │ catalog  │
+   ~/Pictures   ───▶ │ .db WAL  │   │          │   │          │   │          │   │          │
+   …per root        │ +FTS5    │   │          │   │          │   │          │   │          │
+                     │ text 384d│   │          │   │          │   │          │   │          │
+                     │ img 512d │   │          │   │          │   │          │   │          │
+                     │ aud 128d │   │          │   │          │   │          │   │          │
+                     └──────────┘   └──────────┘   └──────────┘   └──────────┘   └──────────┘
+```
+
+One shard per root, each a self-contained index (SQLite + three quantized vector
+stores) that scans, writes and serves queries on its own; the engine fans
+searches out across shards on rayon and fuses the lanes:
+
+| Lane | Source | Weight | Latency at 10⁵ files |
+|---|---|---|---|
+| semantic | bge-small-en-v1.5 int8 → i8 mmap dot scan | 1.0 | single-digit ms |
+| content (vision) | CLIP text tower ↔ image pixel vectors | 0.9 | single-digit ms |
+| keyword | SQLite FTS5 BM25 | 0.7 | single-digit ms |
+| filename | catalog LIKE | 0.5 | single-digit ms |
+| acoustic (spoken queries) | FFT spectral fingerprint ↔ audio store | 0.9 | ~1 ms |
+
+Fusion: weighted reciprocal rank (Σ w/(60+rank)) over globally assigned ranks.
+
+**Indexing pipeline** (background, crash-safe, resumable): per-root parallel
+walk → 1024-row batched upserts → self-serving workers claim jobs across
+shards in batches (round-robin text/image lanes, whisper-gated media) →
+parallel decode/extraction → batched single-instance inference → FTS5 rows +
+quantized vectors → Done. A modify resets the file to Pending after freeing
+its old vectors; a delete frees rows, chunks and every embedding; unchanged
+files are never re-embedded.
 
 ```
 crates/
@@ -85,14 +128,6 @@ crates/
 ├── ipic-cli    headless driver: scan · search · ask --audio · status · list · config
 └── ipic-app    egui GUI: browse table, unified search + mic, thumbnails, details, settings
 ```
-
-**Indexing pipeline** (all background, crash-safe, resumable):
-per-root scans run in parallel → batched upserts into each shard's SQLite →
-self-serving workers claim jobs across shards (text/PDF fast lane, images once
-CLIP is warm, audio/video gated by a whisper-state semaphore) → parallel decode
-→ batched inference (ORT / CLIP) → FTS5 rows + quantized vectors → Done.
-Interrupted work resets to Pending on next launch; unchanged files are never
-re-embedded.
 
 **Data layout** — `~/.ipic/`:
 
@@ -161,28 +196,37 @@ search_threads = 0
 
 ## Measured on the reference machine (M2 Pro, 12 cores)
 
-- Scan: 350k files / 8 shards discovered at ~2.5k files/s; SQLite upserts
-  batched at 1024 rows so claims never starve.
-- Tokenization: 3 ms per 64 chunks (parallel BPE) — embedding inference is the
-  compute wall, and it already runs near the fp32 NEON peak, which is why the
-  index is incremental: unchanged files are never re-embedded.
-- Bulk-index pipeline (found and fixed at this scale): claim queries re-sorting
-  the pending set, 8k-row transactions starving worker claims, single-connection
-  read/write convoy, minified-code "words" burning seconds per chunk in the
-  tokenizer, unbounded queue backlog. All gone — `files_claim` index, batched
-  claims, dedicated read connection, chunk caps, bounded channels.
-- First full index of a 350k-file home directory is dominated honestly by the
-  models: whisper transcription of the audio/video corpus and CLIP on every
-  image. The footer/CLI bar shows live per-kind ETA throughout. Subsequent
-  launches are incremental (watcher + unchanged-skip).
-- Gigatoken was evaluated for tokenization and rejected: Python-only
-  distribution, no crates.io crate, and no WordPiece/BERT support.
+Reference index: `~/Downloads` — 418 files (221 text · 73 PDF · 61 images ·
+6 video · 57 other), indexed end-to-end by the v2 pipeline.
+
+| Metric | Value |
+| --- | --- |
+| Text vectors | 1.5k chunks (bge-small, i8-quantized) incl. whisper transcripts |
+| Image vectors | 53 / 61 images (CLIP ViT-B/32; HEIC needs ffmpeg, else filename context) |
+| Search, cold process | 1.4 – 1.8 s end-to-end — model load dominates; first in-app query 0.4 s |
+| Search, models resident | 26 – 32 ms measured (embedding the query on both towers is most of it; the vector scan itself is sub-millisecond at this shard size) |
+| Scan discovery | ~2.5k files/s across parallel shards (350k-file home directory) |
+| Tokenization | 3 ms per 64 chunks — parallel BPE is free; ONNX inference is the wall |
+| Compute in use | 12 of 12 cores (scan 12 · extract 11 · ONNX 6 · search 12) |
+
+Pipeline pathologies found and fixed while indexing at bulk scale: claim
+queries re-sorting the pending set, huge upsert transactions starving worker
+claims, a single read/write SQLite connection convoying, minified-code
+"words" burning seconds per chunk in the tokenizer, unbounded queue backlog
+(RSS ballooned to ~9 GB). All gone — `files_claim` index, batched claims,
+dedicated read connection, chunk caps, bounded channels. First-run indexing
+is dominated honestly by the models (whisper, CLIP); the footer/CLI bar
+shows live per-kind ETA throughout, and subsequent launches are incremental.
+Gigatoken was evaluated for tokenization and rejected: Python-only
+distribution, no crates.io crate, no WordPiece/BERT support.
 
 ## Tests
 
 ```bash
-cargo test --workspace   # 68 tests: unit + engine e2e (shards, watcher lifecycle,
+cargo test --workspace   # 51 tests: unit + engine e2e (shards, watcher lifecycle,
                          # modify re-index/delete frees, cross-shard merge) + GUI automation
 IPIC_VISION_TEST=1 cargo test -p ipic-rag --test integration vision_content
                           # real-CLIP content search on generated images
+IPIC_SCREENSHOTS=1 UPDATE_SNAPSHOTS=1 cargo test -p ipic-app --test screenshots
+                          # regenerate the screenshots above from the live index
 ```

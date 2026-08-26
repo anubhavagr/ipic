@@ -307,7 +307,7 @@
     </svg>
     <figcaption>Left: files flow down the indexing path into the shared stores. Right: queries fan out over four lanes and fuse into one ranked list. Solid gray/blue = writes, dashed blue = reads, green = acoustic signals, amber dashed = filesystem watcher.</figcaption>
   </figure>
-  <p>Two flows, one set of stores. <strong>Left, the write path:</strong> roots are walked with one thread per core (~435 files/s measured), upserted into SQLite in 8k-row transactions, then claimed job-by-job — text extracts to UTF-8, PDFs go through a panic-guard, audio decodes to 16 kHz mono PCM that feeds both whisper and the FFT fingerprinter, everything ends as ~320-word chunks embedded to i8 vectors. <strong>Right, the read path:</strong> a query becomes four ranked lists — cosine over quantized vectors, BM25, filename match, acoustic match — merged by reciprocal-rank fusion. The amber loop feeds filesystem events back into incremental rescans.</p>
+  <p>Two flows, one set of stores. <strong>Left, the write path:</strong> roots are walked with one thread per core (~2.5k files/s discovery), upserted into SQLite in 1024-row batches (small enough that worker claims never starve), then claimed in batches — text extracts to UTF-8, PDFs go through a panic-guard, images decode to CLIP thumbnails, audio decodes to 16 kHz mono PCM that feeds both whisper and the FFT fingerprinter, everything ends as ~320-word chunks embedded to i8 vectors. <strong>Right, the read path:</strong> a query becomes four ranked lists — cosine over quantized vectors, BM25, filename match, acoustic match — merged by reciprocal-rank fusion. The amber loop feeds filesystem events back into incremental rescans.</p>
 </section>
 
 <!-- ======================= OVERVIEW ======================= -->
@@ -316,17 +316,17 @@
   <div class="badges" style="margin-bottom:14px">
     <span class="badge"><b>Rust</b> · egui</span>
     <span class="badge"><b>100% offline</b> after first model fetch</span>
-    <span class="badge"><b>~450 MB</b> total disk footprint</span>
+    <span class="badge"><b>~450 MB</b> models, one-time fetch</span>
     <span class="badge"><b>single-digit ms</b> search latency</span>
     <span class="badge"><b>all cores</b> during indexing</span>
     <span class="badge"><b>per-root shards</b> decentralized index</span>
   </div>
   <p>ipic indexes a directory tree into a queryable store and manages it: scan, catalog, navigate, sort, filter, batch-operate — and search by meaning rather than filename. One process, three threads of work: an egui front-end, a worker pool that turns files into vectors and transcripts, and a watcher that reconciles the catalog with disk events.</p>
-  <p>Two models drive understanding, both cached under <code>~/.ipic/models/</code> after a one-time fetch: <strong>bge-small-en-v1.5</strong> (384-dim text embeddings, ONNX Runtime) and <strong>whisper small.en q5_1</strong> (speech-to-text, beam-5 decoding, ~35× realtime on Accelerate BLAS). The only network call in the codebase is that first model download — queries, filenames, transcripts and embeddings never leave the process.</p>
-  <p><strong>v2 additions.</strong> A third model family joined: <strong>CLIP ViT-B/32</strong> (both towers, ~150 MB) — image pixels and typed queries embed into the same 512-dim space, so “sunset over water” matches photographs by content. The single database is now a <strong>decentralized per-root shard set</strong> (each root owns its SQLite catalog plus text/vision/audio vector stores, scanned and written in parallel). A persistent watcher indexes new files, re-embeds modified ones and frees the vectors of deleted ones in the background while the UI stays responsive; the footer reports live progress with per-kind throughput and ETA (an hour of audio is not a second of JPEG). A <code>[compute]</code> config section budgets threads per stage — scan, extraction, ONNX inference, search — with saturating defaults: idle cores are waste.</p>
+  <p>Three model families drive understanding, all cached under <code>~/.ipic/models/</code> after a one-time fetch: <strong>bge-small-en-v1.5</strong> (384-dim text embeddings, ONNX Runtime), <strong>whisper small.en q5_1</strong> (speech-to-text, beam-5 decoding, ~35× realtime on Accelerate BLAS) and <strong>CLIP ViT-B/32</strong> (both towers, ~150 MB). The only network call in the codebase is that first model download — queries, filenames, transcripts and embeddings never leave the process.</p>
+  <p><strong>v2 additions.</strong> Image pixels and typed queries embed into the same <strong>CLIP ViT-B/32</strong> 512-dim space, so “sunset over water” matches photographs by content. The single database is now a <strong>decentralized per-root shard set</strong> (each root owns its SQLite catalog plus text/vision/audio vector stores, scanned and written in parallel). A persistent watcher indexes new files, re-embeds modified ones and frees the vectors of deleted ones in the background while the UI stays responsive; the footer reports live progress with per-kind throughput and ETA (an hour of audio is not a second of JPEG). A <code>[compute]</code> config section budgets threads per stage — scan, extraction, ONNX inference, search — with saturating defaults: idle cores are waste.</p>
   <div class="grid2">
-    <div class="stat"><div class="v">4 – 10 ms</div><div class="l">typical end-to-end search latency</div></div>
-    <div class="stat"><div class="v">~435 files/s</div><div class="l">full scan + index throughput observed on Apple Silicon</div></div>
+    <div class="stat"><div class="v">~30 ms</div><div class="l">typical search latency with models resident (query embedding dominates)</div></div>
+    <div class="stat"><div class="v">~2.5k files/s</div><div class="l">parallel scan discovery (350k-file home directory, 8 shards)</div></div>
     <div class="stat"><div class="v">1 byte</div><div class="l">per vector component — i8-quantized, page-cache-resident index</div></div>
     <div class="stat"><div class="v">35×</div><div class="l">realtime transcription (small.en, beam-5, Accelerate BLAS)</div></div>
   </div>
@@ -583,7 +583,7 @@
   <h2><span class="num">17</span>Limits &amp; roadmap</h2>
   <ul>
     <li><strong>Speech-centric audio.</strong> Non-speech sound (music, ambience) matches acoustically and by metadata, but has no semantic representation yet — a CLAP-style encoder is the natural extension, and the per-modality store design slots it in without pipeline changes.</li>
-    <li><strong>Image search is name+context based.</strong> Content-based image retrieval (CLIP) would follow the same two-store pattern.</li>
+    <li><strong>Image search is content-based but English-centric.</strong> CLIP ViT-B/32 ranks pixels against the query text in a shared 512-dim space; multilingual or OCR-free document understanding would need a larger tower.</li>
     <li><strong>Flat vector index.</strong> Exact integer scan is optimal to a few million vectors (~30 ms at 2 M × 384-dim on one core, faster across cores); HNSW becomes worthwhile beyond that.</li>
     <li><strong>Rename/move propagation</strong> relies on the watcher's incremental rescan — instant in practice, eventually-consistent by design.</li>
     <li><strong>Future:</strong> edge-AI targets (the core crates are dependency-light by design), mobile companions sharing the catalog format, per-modality model swaps via config.</li>
