@@ -316,12 +316,14 @@
   <div class="badges" style="margin-bottom:14px">
     <span class="badge"><b>Rust</b> · egui</span>
     <span class="badge"><b>100% offline</b> after first model fetch</span>
-    <span class="badge"><b>~318 MB</b> total disk footprint</span>
+    <span class="badge"><b>~450 MB</b> total disk footprint</span>
     <span class="badge"><b>single-digit ms</b> search latency</span>
     <span class="badge"><b>all cores</b> during indexing</span>
+    <span class="badge"><b>per-root shards</b> decentralized index</span>
   </div>
   <p>ipic indexes a directory tree into a queryable store and manages it: scan, catalog, navigate, sort, filter, batch-operate — and search by meaning rather than filename. One process, three threads of work: an egui front-end, a worker pool that turns files into vectors and transcripts, and a watcher that reconciles the catalog with disk events.</p>
   <p>Two models drive understanding, both cached under <code>~/.ipic/models/</code> after a one-time fetch: <strong>bge-small-en-v1.5</strong> (384-dim text embeddings, ONNX Runtime) and <strong>whisper small.en q5_1</strong> (speech-to-text, beam-5 decoding, ~35× realtime on Accelerate BLAS). The only network call in the codebase is that first model download — queries, filenames, transcripts and embeddings never leave the process.</p>
+  <p><strong>v2 additions.</strong> A third model family joined: <strong>CLIP ViT-B/32</strong> (both towers, ~150 MB) — image pixels and typed queries embed into the same 512-dim space, so “sunset over water” matches photographs by content. The single database is now a <strong>decentralized per-root shard set</strong> (each root owns its SQLite catalog plus text/vision/audio vector stores, scanned and written in parallel). A persistent watcher indexes new files, re-embeds modified ones and frees the vectors of deleted ones in the background while the UI stays responsive; the footer reports live progress with per-kind throughput and ETA (an hour of audio is not a second of JPEG). A <code>[compute]</code> config section budgets threads per stage — scan, extraction, ONNX inference, search — with saturating defaults: idle cores are waste.</p>
   <div class="grid2">
     <div class="stat"><div class="v">4 – 10 ms</div><div class="l">typical end-to-end search latency</div></div>
     <div class="stat"><div class="v">~435 files/s</div><div class="l">full scan + index throughput observed on Apple Silicon</div></div>

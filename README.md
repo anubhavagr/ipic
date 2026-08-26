@@ -159,9 +159,30 @@ search_threads = 0
 - Images above `max_image_mb` (64 MB default) are skipped for pixel embedding
   (decode-memory guard) and stay searchable by filename context.
 
+## Measured on the reference machine (M2 Pro, 12 cores)
+
+- Scan: 350k files / 8 shards discovered at ~2.5k files/s; SQLite upserts
+  batched at 1024 rows so claims never starve.
+- Tokenization: 3 ms per 64 chunks (parallel BPE) — embedding inference is the
+  compute wall, and it already runs near the fp32 NEON peak, which is why the
+  index is incremental: unchanged files are never re-embedded.
+- Bulk-index pipeline (found and fixed at this scale): claim queries re-sorting
+  the pending set, 8k-row transactions starving worker claims, single-connection
+  read/write convoy, minified-code "words" burning seconds per chunk in the
+  tokenizer, unbounded queue backlog. All gone — `files_claim` index, batched
+  claims, dedicated read connection, chunk caps, bounded channels.
+- First full index of a 350k-file home directory is dominated honestly by the
+  models: whisper transcription of the audio/video corpus and CLIP on every
+  image. The footer/CLI bar shows live per-kind ETA throughout. Subsequent
+  launches are incremental (watcher + unchanged-skip).
+- Gigatoken was evaluated for tokenization and rejected: Python-only
+  distribution, no crates.io crate, and no WordPiece/BERT support.
+
 ## Tests
 
 ```bash
-cargo test --workspace   # 66 tests: unit + engine e2e (shards, watcher lifecycle,
-                         # modify re-index/delete frees) + full GUI automation (kittest)
+cargo test --workspace   # 68 tests: unit + engine e2e (shards, watcher lifecycle,
+                         # modify re-index/delete frees, cross-shard merge) + GUI automation
+IPIC_VISION_TEST=1 cargo test -p ipic-rag --test integration vision_content
+                          # real-CLIP content search on generated images
 ```

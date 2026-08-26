@@ -129,6 +129,52 @@ fn shards_partition_roots_and_merge_search() {
 }
 
 #[test]
+fn vision_content_search_ranks_by_pixels() {
+    // Opt-in (IPIC_VISION_TEST=1): uses the real CLIP towers, no network
+    // after first download. Hermetic runs keep vision off.
+    if std::env::var("IPIC_VISION_TEST").is_err() {
+        return;
+    }
+    let base = std::env::temp_dir().join(format!("ipic-vision-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    let corpus = base.join("corpus");
+    std::fs::create_dir_all(&corpus).unwrap();
+    // Two flat-color images with neutral names: only pixels can separate them.
+    let red = image::RgbImage::from_pixel(128, 128, image::Rgb([200, 30, 30]));
+    let blue = image::RgbImage::from_pixel(128, 128, image::Rgb([30, 30, 200]));
+    red.save(corpus.join("asset-one.png")).unwrap();
+    blue.save(corpus.join("asset-two.png")).unwrap();
+
+    let config = Config {
+        roots: vec![corpus.clone()],
+        whisper_model: "none".into(),
+        embedder: "hashing".into(),
+        image_embedder: "clip-vit-b32".into(),
+        ..Default::default()
+    };
+    let engine = Engine::launch_with_data_dir(config, base.join("data")).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(120);
+    loop {
+        let status = engine.status();
+        if status.pending == 0 && status.image_vector_count >= 2 {
+            break;
+        }
+        assert!(Instant::now() < deadline, "vision indexing must finish: {status:?}");
+        std::thread::sleep(Duration::from_millis(250));
+    }
+    let outcome = engine.semantic_search("solid red color", 5).unwrap();
+    let top = outcome.hits.first().expect("vision search must return hits");
+    assert!(
+        top.path.ends_with("asset-one.png") && top.sources.vision,
+        "red query must rank the red image by content, got {} (lanes {:?})",
+        top.path,
+        top.sources
+    );
+    engine.shutdown();
+    let _ = std::fs::remove_dir_all(&base);
+}
+
+#[test]
 fn modify_reindexes_and_delete_frees_embeddings() {
     let base = std::env::temp_dir().join(format!("ipic-lifecycle-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&base);
