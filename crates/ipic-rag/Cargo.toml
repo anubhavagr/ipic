@@ -8,7 +8,8 @@ license.workspace = true
 [dependencies]
 anyhow = "1.0.104"
 crossbeam-channel = "0.5.16"
-fastembed = "6.0.0"
+fastembed = { version = "6.0.0", features = ["image-models"] }
+image = { version = "0.25.10", default-features = false, features = ["jpeg", "png", "webp", "gif", "bmp", "tiff"] }
 ipic-core = { path = "../ipic-core" }
 memmap2 = "0.9.11"
 pdf-extract = "0.12.0"

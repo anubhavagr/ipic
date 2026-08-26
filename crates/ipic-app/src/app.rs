@@ -111,6 +111,12 @@ impl IpicApp {
                     let kind = if neural { "neural" } else { "lexical fallback" };
                     self.push_notice(format!("embedder: {model_id} ({kind})"));
                 }
+                EngineEvent::VisionReady { model_id } => {
+                    self.push_notice(format!("vision: {model_id} — image content search active"))
+                }
+                EngineEvent::VisionUnavailable { reason } => {
+                    self.push_notice(format!("vision unavailable: {reason}"))
+                }
                 EngineEvent::Notice(message) => self.push_notice(message),
                 EngineEvent::IndexingIdle => {
                     self.push_notice("index up to date".into());
@@ -172,22 +178,16 @@ impl IpicApp {
             std::path::Path::new(&dir.path).parent().map(|parent| parent.to_path_buf())
         });
         if let Some(parent_path) = parent_path
-            && let Ok(connection) = self.engine.catalog.reader()
-                && let Some(parent) = self
-                    .engine
-                    .catalog
-                    .dir_by_path(&connection, &parent_path.to_string_lossy())
-                    .ok()
-                    .flatten()
-                    && self
-                        .config
-                        .roots
-                        .iter()
-                        .any(|root| parent.path.starts_with(root.to_string_lossy().as_ref()))
-                    {
-                        self.navigate_to(Some(parent));
-                        return;
-                    }
+            && let Some(parent) = self.engine.dir_by_path(&parent_path.to_string_lossy())
+            && self
+                .config
+                .roots
+                .iter()
+                .any(|root| parent.path.starts_with(root.to_string_lossy().as_ref()))
+        {
+            self.navigate_to(Some(parent));
+            return;
+        }
         self.navigate_to(None);
     }
 
@@ -285,9 +285,7 @@ impl IpicApp {
     pub fn trash_selected(&mut self) {
         if let Some((_file, path)) = self.selected_file.clone()
             && crate::actions::move_to_trash(std::path::Path::new(&path)).is_ok() {
-                if let Ok(slots) = self.engine.catalog.remove_path(&path) {
-                    self.engine.release_vector_slots(&slots);
-                }
+                self.engine.remove_path(&path);
                 self.selected_file = None;
                 self.browse.listing_stale = true;
                 self.push_notice("moved to trash".into());
@@ -493,25 +491,37 @@ fn draw_breadcrumb(ui: &mut Ui, app: &mut IpicApp) {
                     egui::RichText::new(segment).color(crate::theme::TEXT_DIM)
                 };
                 if ui.add(egui::Button::new(label).fill(egui::Color32::TRANSPARENT)).clicked()
-                    && let Ok(connection) = app.engine.catalog.reader()
-                        && let Some(target_dir) = app
-                            .engine
-                            .catalog
-                            .dir_by_path(&connection, &target)
-                            .ok()
-                            .flatten()
-                        {
-                            app.navigate_to(Some(target_dir));
-                        }
+                    && let Some(target_dir) = app.engine.dir_by_path(&target)
+                {
+                    app.navigate_to(Some(target_dir));
+                }
             }
         }
     }
 }
 
+/// Compact human duration for ETAs.
+pub fn format_eta(seconds: f64) -> String {
+    if !seconds.is_finite() || seconds < 0.0 {
+        return "—".into();
+    }
+    if seconds < 60.0 {
+        format!("≈ {:.0}s", seconds)
+    } else if seconds < 3600.0 {
+        format!("≈ {:.0}m", seconds / 60.0)
+    } else {
+        format!("≈ {:.1}h", seconds / 3600.0)
+    }
+}
+
 /// Compact footer progress: label + fraction + mini bar.
-fn draw_footer_progress(ui: &mut Ui, label: &str, fraction: f32, remaining: u64) {
-    ui.label(egui::RichText::new(format!("{label} {remaining} left")).color(crate::theme::TEXT_DIM).small());
-    let width = 90.0;
+fn draw_footer_progress(ui: &mut Ui, label: &str, fraction: f32, detail: &str) {
+    ui.label(
+        egui::RichText::new(format!("{label} {detail}"))
+            .color(crate::theme::TEXT_DIM)
+            .small(),
+    );
+    let width = 110.0;
     let (rect, _) = ui.allocate_exact_size(egui::vec2(width, 5.0), egui::Sense::hover());
     let painter = ui.painter();
     painter.rect_filled(rect, egui::CornerRadius::same(2), crate::theme::SURFACE_HOVER);
@@ -542,6 +552,12 @@ pub fn draw_status_bar(ui: &mut Ui, app: &mut IpicApp) {
                 ui.separator();
                 ui.label(egui::RichText::new(format!("{} files", status.total_files)).color(crate::theme::TEXT_DIM));
                 ui.label(egui::RichText::new(format!("{} vectors", status.vector_count)).color(crate::theme::TEXT_DIM));
+                if status.image_vector_count > 0 {
+                    ui.label(
+                        egui::RichText::new(format!("{} image vectors", status.image_vector_count))
+                            .color(crate::theme::TEXT_DIM),
+                    );
+                }
                 ui.label(egui::RichText::new(format!("{}× cores", status.core_count)).color(crate::theme::TEXT_DIM));
                 if app.searching {
                     ui.label(egui::RichText::new("searching…").color(crate::theme::TEXT_DIM));
@@ -555,18 +571,30 @@ pub fn draw_status_bar(ui: &mut Ui, app: &mut IpicApp) {
                     for (message, _) in app.notices.iter().rev() {
                         ui.label(egui::RichText::new(message.clone()).color(crate::theme::TEXT_DIM).small());
                     }
-                    // Progress cluster: indexing/scanning fraction + spinner.
-                    let (pending, _busy, done, failed) =
-                        app.engine.catalog.rag_counters().unwrap_or((0, 0, 0, 0));
-                    let total = (done + failed + pending).max(1) as f32;
-                    if pending > 0 || status.scanning {
-                        let completed = (done + failed) as f32;
-                        let fraction = completed / total;
-                        draw_footer_progress(ui, if status.scanning {
-                            "scanning + indexing"
-                        } else {
-                            "indexing"
-                        }, fraction, pending as u64);
+                    // Progress cluster: scan/index fraction, throughput, ETA.
+                    let index_total = (status.done + status.failed + status.pending).max(1) as f32;
+                    let index_fraction = (status.done + status.failed) as f32 / index_total;
+                    let eta_text = status.index_eta_seconds.map(format_eta);
+                    if status.scanning {
+                        let rate = status.scan_files_per_second;
+                        let detail = match (status.scan_eta_seconds, rate > 0.01) {
+                            (Some(eta), true) => {
+                                format!("{} files · {}/s · {}", format_count(status.scan_files_seen), format_rate(rate), format_eta(eta))
+                            }
+                            _ => format!("{} files · {}/s", format_count(status.scan_files_seen), format_rate(rate)),
+                        };
+                        draw_footer_progress(ui, "scanning", 1.0, &detail);
+                        ui.spinner();
+                    } else if status.pending > 0 {
+                        let detail = match eta_text {
+                            Some(eta) => format!(
+                                "{} left · {}/s · {eta}",
+                                format_count(status.pending),
+                                format_rate(status.index_files_per_second)
+                            ),
+                            None => format!("{} left", format_count(status.pending)),
+                        };
+                        draw_footer_progress(ui, "indexing", index_fraction, &detail);
                         ui.spinner();
                     } else if app.searching {
                         ui.spinner();
@@ -575,4 +603,24 @@ pub fn draw_status_bar(ui: &mut Ui, app: &mut IpicApp) {
                 });
             });
         });
+}
+
+fn format_count(value: u64) -> String {
+    if value >= 1_000_000 {
+        format!("{:.1}M", value as f64 / 1_000_000.0)
+    } else if value >= 10_000 {
+        format!("{:.1}k", value as f64 / 1_000.0)
+    } else {
+        value.to_string()
+    }
+}
+
+fn format_rate(rate: f64) -> String {
+    if rate >= 1_000_000.0 {
+        format!("{:.1}M", rate / 1_000_000.0)
+    } else if rate >= 1_000.0 {
+        format!("{:.1}k", rate / 1_000.0)
+    } else {
+        format!("{:.0}", rate)
+    }
 }

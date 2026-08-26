@@ -60,9 +60,17 @@ impl eframe::App for IpicApp {
         }
 
         // Keep the UI live while background work or recording runs.
-        if self.searching || self.recorder.is_some() || self.engine.is_scanning() {
+        if self.searching
+            || self.recorder.is_some()
+            || self.engine.has_background_work()
+        {
             context.request_repaint_after(Duration::from_millis(200));
         }
+    }
+
+    /// Joins background threads (whisper/Metal teardown needs a live process).
+    fn on_exit(&mut self) {
+        self.engine.shutdown();
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
@@ -220,6 +228,23 @@ fn draw_settings_window(context: &Context, app: &mut IpicApp) {
                 app.engine.spawn_scan();
             }
             ui.add_space(8.0);
+            ui.label(egui::RichText::new("Image embeddings").strong());
+            ui.horizontal(|ui| {
+                let enabled = app.config.image_embedder != "none";
+                if ui
+                    .add(egui::Button::new(if enabled { "CLIP content search: on" } else { "CLIP content search: off" }))
+                    .clicked()
+                {
+                    app.config.image_embedder = if enabled { "none".into() } else { "clip-vit-b32".into() };
+                    app.engine.persist_config(&app.config);
+                    app.push_notice(if enabled {
+                        "vision off — applies to new indexing; rescan to re-embed"
+                    } else {
+                        "vision on — downloads CLIP on first use, then indexes image content"
+                    }.into());
+                }
+            });
+            ui.add_space(8.0);
             ui.label(egui::RichText::new("Whisper model").strong());
             let models = ipic_rag::transcribe::WHISPER_MODELS.to_vec();
             egui::ComboBox::from_id_salt("whisper_model")
@@ -251,11 +276,20 @@ fn draw_settings_window(context: &Context, app: &mut IpicApp) {
                 }
             });
             let status = app.engine.status();
+            let compute = status.compute;
             ui.add_space(6.0);
             ui.label(
                 egui::RichText::new(format!(
                     "embedder: {}  ·  vectors: {}  ·  indexed: {} files",
                     status.embedder_model, status.vector_count, status.done
+                ))
+                .small()
+                .color(theme::TEXT_DIM),
+            );
+            ui.label(
+                egui::RichText::new(format!(
+                    "compute: {} scan threads · {} extract workers · {} onnx threads · {} search threads",
+                    compute.scan_threads, compute.extract_workers, compute.ort_threads, compute.search_threads
                 ))
                 .small()
                 .color(theme::TEXT_DIM),

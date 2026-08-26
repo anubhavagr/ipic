@@ -13,7 +13,7 @@ pub trait TextEmbedder: Send + Sync {
     fn embed_batch(&self, texts: &[String]) -> Result<Vec<Vec<f32>>>;
 }
 
-/// BAAI/bge-small-en-v1.5 via ONNX Runtime (NEON-accelerated on arm64).
+/// BAAI/bge-small-en-v1.5 (int8-quantized ONNX) via ONNX Runtime.
 pub struct NeuralEmbedder {
     model: Mutex<TextEmbedding>,
 }
@@ -21,7 +21,7 @@ pub struct NeuralEmbedder {
 impl NeuralEmbedder {
     pub fn load(cache_dir: PathBuf, show_download_progress: bool, threads: usize) -> Result<Self> {
         let model = TextEmbedding::try_new(
-            TextInitOptions::new(EmbeddingModel::BGESmallENV15)
+            TextInitOptions::new(EmbeddingModel::BGESmallENV15Q)
                 .with_cache_dir(cache_dir)
                 .with_show_download_progress(show_download_progress)
                 .with_intra_threads(threads),
@@ -33,7 +33,7 @@ impl NeuralEmbedder {
 
 impl TextEmbedder for NeuralEmbedder {
     fn model_id(&self) -> &'static str {
-        "bge-small-en-v1.5"
+        "bge-small-en-v1.5q"
     }
 
     fn dim(&self) -> usize {

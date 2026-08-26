@@ -166,12 +166,69 @@ pub struct Config {
     /// "neural" (default) or "hashing" (offline lexical fallback, no download).
     #[serde(default = "default_embedder")]
     pub embedder: String,
+    /// "clip-vit-b32" (default) embeds image pixels; "none" keeps filename-only.
+    #[serde(default = "default_image_embedder")]
+    pub image_embedder: String,
     pub embed_batch: usize,
     pub max_text_mb: usize,
+    /// Images above this size are skipped for pixel embedding (decode guard).
+    #[serde(default = "default_max_image_mb")]
+    pub max_image_mb: usize,
+    /// Thread budget per pipeline stage; 0 entries derive saturating defaults.
+    #[serde(default)]
+    pub compute: ComputeConfig,
 }
 
 fn default_embedder() -> String {
     "neural".into()
+}
+
+fn default_image_embedder() -> String {
+    "clip-vit-b32".into()
+}
+
+fn default_max_image_mb() -> usize {
+    64
+}
+
+/// Per-stage thread allocation. Zero means "derive from the machine": the
+/// resolved budget saturates every core — idle hardware is waste — while the
+/// user can cap any stage explicitly.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
+pub struct ComputeConfig {
+    pub max_cores: usize,
+    pub scan_threads: usize,
+    pub extract_workers: usize,
+    pub ort_threads: usize,
+    pub search_threads: usize,
+}
+
+/// Concrete thread counts resolved from [`ComputeConfig`].
+#[derive(Debug, Clone, Copy)]
+pub struct ComputeBudget {
+    pub scan_threads: usize,
+    pub extract_workers: usize,
+    pub ort_threads: usize,
+    pub search_threads: usize,
+}
+
+impl ComputeConfig {
+    pub fn resolve(&self) -> ComputeBudget {
+        let logical = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4);
+        let physical = (logical / 2).max(1);
+        let cap = if self.max_cores == 0 { logical } else { self.max_cores.min(logical) };
+        let at_least_one = |value: usize| value.max(1);
+        ComputeBudget {
+            scan_threads: at_least_one(if self.scan_threads == 0 { cap } else { self.scan_threads.min(cap) }),
+            // Leave one core for the UI compositor; everything else extracts.
+            extract_workers: at_least_one(
+                if self.extract_workers == 0 { cap.saturating_sub(1).max(2) } else { self.extract_workers.min(cap) },
+            ),
+            // ONNX intra-op shares the machine with the decode workers.
+            ort_threads: at_least_one(if self.ort_threads == 0 { physical } else { self.ort_threads.min(cap) }),
+            search_threads: at_least_one(if self.search_threads == 0 { cap } else { self.search_threads.min(cap) }),
+        }
+    }
 }
 
 impl Default for Config {
@@ -186,8 +243,11 @@ impl Default for Config {
             whisper_workers: 3,
             whisper_use_gpu: false,
             embedder: default_embedder(),
+            image_embedder: default_image_embedder(),
             embed_batch: 64,
             max_text_mb: 8,
+            max_image_mb: default_max_image_mb(),
+            compute: ComputeConfig::default(),
         }
     }
 }
@@ -207,6 +267,25 @@ impl Config {
     /// Config lives beside the data it configures (tests use temp data dirs).
     pub fn path_in(directory: &Path) -> PathBuf {
         directory.join("config.toml")
+    }
+
+    /// Non-overlapping canonical roots (nested roots are redundant work).
+    pub fn canonical_roots(&self) -> Vec<PathBuf> {
+        let mut roots: Vec<PathBuf> = self
+            .roots
+            .iter()
+            .filter_map(|root| std::fs::canonicalize(root).ok())
+            .filter(|root| root.is_dir())
+            .collect();
+        roots.sort_unstable();
+        roots.dedup();
+        let mut compact: Vec<PathBuf> = Vec::new();
+        for root in roots {
+            if !compact.iter().any(|kept| root.starts_with(kept)) {
+                compact.push(root);
+            }
+        }
+        compact
     }
 
     /// Loads config from disk, creating the default on first run.

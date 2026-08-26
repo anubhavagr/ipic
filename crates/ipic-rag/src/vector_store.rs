@@ -67,7 +67,10 @@ impl VectorStore {
             let compatible = existing.dim == expected.dim && existing.model_hash == expected.model_hash;
             (existing, compatible)
         };
+        // Prefault the mapping so the first query scans resident pages, not
+        // cold disk (harmless on small stores, decisive at multi-GB scale).
         let mmap = unsafe { MmapOptions::new().map(&file)? };
+        mmap.advise(memmap2::Advice::WillNeed).ok();
         let mut free_slots = Vec::new();
         if free_path.exists() {
             let mut bytes = Vec::new();

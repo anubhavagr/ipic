@@ -9,6 +9,15 @@ use std::process::{Command, Stdio};
 
 const CHUNK_WORDS: usize = 320; // ≈ 512 tokens for typical English
 const OVERLAP_WORDS: usize = 24;
+/// Hard character ceiling per chunk: tokenizers process the full string even
+/// past the model's truncation point, and batch padding wastes compute on
+/// length spread.
+const CHUNK_CHAR_LIMIT: usize = 800;
+/// Minified code emits megabyte "words"; split them before tokenization.
+const WORD_CHAR_LIMIT: usize = 64;
+/// Head chunks carry a document's gist; deep tails of huge files (bundles,
+/// lockfiles, datasets) are not worth their embedding cost.
+const MAX_CHUNKS_PER_FILE: usize = 8;
 
 /// Reads text content for Text/Pdf files; returns None for empty/unreadable input.
 /// pdf-extract panics on malformed PDFs, so its call is panic-guarded.
@@ -59,32 +68,110 @@ pub fn extract_text(path: &Path, kind: FileKind, max_bytes: usize) -> Result<Opt
     Ok((!trimmed.is_empty()).then(|| trimmed.to_string()))
 }
 
-/// Word-bounded chunks with a small trailing overlap so boundary context stays searchable.
+/// Word-bounded chunks with a small trailing overlap so boundary context stays
+/// searchable. Both word and character budgets bound tokenizer input.
 pub fn chunk_text(text: &str) -> Vec<String> {
-    let words: Vec<&str> = text.split_whitespace().collect();
+    let words: Vec<&str> = text.split_whitespace().flat_map(split_long_word).collect();
     let mut chunks: Vec<String> = Vec::new();
     let mut start = 0;
     while start < words.len() {
-        let end = (start + CHUNK_WORDS).min(words.len());
+        let mut end = start;
+        let mut characters = 0;
+        while end < words.len() && end - start < CHUNK_WORDS && characters < CHUNK_CHAR_LIMIT {
+            characters += words[end].len() + 1;
+            end += 1;
+        }
         chunks.push(words[start..end].join(" "));
-        if end == words.len() {
+        if end == words.len() || chunks.len() >= MAX_CHUNKS_PER_FILE {
             break;
         }
-        start = end.saturating_sub(OVERLAP_WORDS);
+        // Overlap capped below the chunk length: start always advances.
+        start = end - OVERLAP_WORDS.min(end - start - 1);
     }
     chunks.retain(|chunk| chunk.split_whitespace().count() > 3);
     chunks
 }
 
+/// Char-safe splitter for pathological single tokens.
+fn split_long_word(word: &str) -> Vec<&str> {
+    if word.chars().count() <= WORD_CHAR_LIMIT {
+        return vec![word];
+    }
+    let mut pieces = Vec::new();
+    let mut collected = 0;
+    let mut piece_start = 0;
+    for (offset, _) in word.char_indices() {
+        if collected >= WORD_CHAR_LIMIT {
+            pieces.push(&word[piece_start..offset]);
+            piece_start = offset;
+            collected = 0;
+        }
+        collected += 1;
+    }
+    pieces.push(&word[piece_start..]);
+    pieces
+}
+
 pub const SAMPLE_RATE: usize = 16_000;
 
-/// True when ffmpeg is usable on this machine (broadest container coverage).
-pub fn ffmpeg_available() -> bool {
-    std::process::Command::new("ffprobe")
-        .arg("-version")
+/// Extensions the `image` crate decodes directly; everything else (HEIC,
+/// HEIF, AVIF) rides the ffmpeg pipe when present.
+const NATIVE_IMAGE_EXTENSIONS: &[&str] =
+    &["jpg", "jpeg", "png", "webp", "gif", "bmp", "tiff", "tif", "ico"];
+
+/// Decodes an image and downsamples to CLIP input resolution, bounding decode
+/// memory. Returns Ok(None) for formats with no pixel content (svg); errors
+/// mean the file is corrupt or oversized.
+pub fn decode_image_thumbnail(path: &Path, max_bytes: usize) -> Result<Option<image::DynamicImage>> {
+    let extension = path
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .map(|extension| extension.to_ascii_lowercase())
+        .unwrap_or_default();
+    if extension == "svg" {
+        return Ok(None); // no rasterizer; filename-context still applies
+    }
+    let metadata = std::fs::metadata(path)?;
+    if metadata.len() as usize > max_bytes {
+        return Err(anyhow!("image exceeds the decode size limit"));
+    }
+    let decoded = if NATIVE_IMAGE_EXTENSIONS.contains(&extension.as_str()) {
+        image::ImageReader::open(path)
+            .map_err(|error| anyhow!("image open failed: {error}"))?
+            .decode()
+            .map_err(|error| anyhow!("image decode failed: {error}"))?
+    } else {
+        decode_image_with_ffmpeg(path)?
+    };
+    Ok(Some(decoded.thumbnail(224, 224)))
+}
+
+fn decode_image_with_ffmpeg(path: &Path) -> Result<image::DynamicImage> {
+    let output = Command::new("ffmpeg")
+        .args(["-v", "error", "-i"])
+        .arg(path)
+        .args(["-vf", "scale=224:224:force_original_aspect_ratio=decrease", "-f", "image2", "-vcodec", "png", "-"])
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
         .output()
-        .map(|output| output.status.success())
-        .unwrap_or(false)
+        .map_err(|error| anyhow!("ffmpeg spawn failed: {error}"))?;
+    if !output.status.success() || output.stdout.is_empty() {
+        return Err(anyhow!("ffmpeg could not decode {}", path.display()));
+    }
+    image::load_from_memory(&output.stdout).map_err(|error| anyhow!("ffmpeg png decode failed: {error}"))
+}
+
+/// True when ffmpeg is usable on this machine (broadest container coverage).
+/// Probing spawns a process — answered once per process lifetime.
+pub fn ffmpeg_available() -> bool {
+    static AVAILABLE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *AVAILABLE.get_or_init(|| {
+        std::process::Command::new("ffprobe")
+            .arg("-version")
+            .output()
+            .map(|output| output.status.success())
+            .unwrap_or(false)
+    })
 }
 
 /// Decodes any audio/video file to mono 16 kHz f32 PCM for whisper.
@@ -207,6 +294,21 @@ mod tests {
     fn tiny_text_is_single_chunk() {
         assert_eq!(chunk_text("hello world this is a test"), vec!["hello world this is a test"]);
         assert!(chunk_text("").is_empty());
+    }
+
+    #[test]
+    fn pathological_words_are_split_and_bounded() {
+        let minified = "a".repeat(100_000);
+        let chunks = chunk_text(&minified);
+        assert!(!chunks.is_empty(), "minified text still yields chunks");
+        for chunk in &chunks {
+            assert!(chunk.len() <= CHUNK_CHAR_LIMIT + WORD_CHAR_LIMIT, "chunk {} chars", chunk.len());
+        }
+        // A long run of normal words respects the character ceiling.
+        let normal = "word ".repeat(10_000);
+        for chunk in chunk_text(&normal) {
+            assert!(chunk.len() <= CHUNK_CHAR_LIMIT + 8);
+        }
     }
 
     #[test]

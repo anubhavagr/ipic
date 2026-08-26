@@ -50,7 +50,11 @@ enum Command {
         limit: i64,
     },
     /// Print / edit effective configuration.
-    Config { #[arg(long)] set_roots: Option<Vec<PathBuf>> },
+    Config {
+        /// One or more roots (repeats also accepted: --set-roots a --set-roots b).
+        #[arg(long, num_args = 1..)]
+        set_roots: Option<Vec<PathBuf>>,
+    },
 }
 
 #[derive(clap::ValueEnum, Clone, Copy)]
@@ -99,27 +103,55 @@ fn run_config(set_roots: Option<Vec<PathBuf>>) -> anyhow::Result<()> {
 }
 
 fn run_list(directory: Option<PathBuf>, kind: KindFilter, limit: i64) -> anyhow::Result<()> {
-    let catalog = ipic_core::catalog::Catalog::open(&ipic_core::data_dir().join("catalog.db"))?;
-    let connection = catalog.reader()?;
-    let filter = ipic_core::FileFilter { kinds: kind.kinds(), ..Default::default() };
+    let config = Config::load_or_create()?;
+    let mut directory = directory;
+    if let Some(path) = &directory {
+        directory = Some(path.canonicalize()?);
+    }
+    // A read-only engine view over the shards (no scan: launch then stop it).
+    let mut quiet_config = config.clone();
+    quiet_config.whisper_model = "none".into();
+    let engine = Engine::launch_with_data_dir(quiet_config, ipic_core::data_dir())?;
+    engine.stop_background_work();
     let directory_row = match &directory {
-        Some(directory) => catalog.dir_by_path(&connection, &directory.canonicalize()?.to_string_lossy())?,
+        Some(directory) => engine.dir_by_path(&directory.to_string_lossy()),
         None => None,
     };
-    let entries = catalog.children(&connection, directory_row.map(|row| row.id), &filter, SortKey::Name, true, limit)?;
-    let directory_display = directory
-        .as_ref()
-        .map(|directory| directory.canonicalize().unwrap_or_else(|_| directory.clone()))
-        .unwrap_or_else(|| PathBuf::from("(entire catalog)"));
-    for file_row in entries {
+    let mut entries: Vec<(ipic_core::FileRow, String)> = Vec::new();
+    if let Some(row) = &directory_row {
+        let (_dirs, files) = engine.directory_children(
+            Some(row),
+            &ipic_core::FileFilter { kinds: kind.kinds(), ..Default::default() },
+            SortKey::Name,
+            true,
+            limit,
+        );
+        entries = files;
+    } else {
+        for root in engine.current_roots() {
+            if let Some(row) = engine.dir_by_path(&root.to_string_lossy()) {
+                let (_dirs, files) = engine.directory_children(
+                    Some(&row),
+                    &ipic_core::FileFilter { kinds: kind.kinds(), ..Default::default() },
+                    SortKey::Name,
+                    true,
+                    limit,
+                );
+                entries.extend(files);
+            }
+        }
+    }
+    let directory_display = directory.unwrap_or_else(|| PathBuf::from("(entire catalog)"));
+    for (file_row, path) in entries {
         println!(
-            "{:<6} {:>10}  {} / {}",
+            "{:<6} {:>10}  {}",
             file_row.kind.label(),
             ipic_core::util::format_size(file_row.size),
-            directory_display.display(),
-            file_row.name
+            path
         );
     }
+    let _ = directory_display;
+    engine.shutdown();
     Ok(())
 }
 
@@ -135,10 +167,16 @@ fn run_status() -> anyhow::Result<()> {
     println!("rag pending        : {}", status.pending);
     println!("rag completed      : {}", status.done);
     println!("rag failed         : {}", status.failed);
-    println!("vectors stored     : {}", status.vector_count);
+    println!("text vectors       : {}", status.vector_count);
+    println!("image vectors      : {}", status.image_vector_count);
     println!("embedder           : {}{}", status.embedder_model, if status.neural_embedder { " (neural)" } else { " (lexical fallback)" });
+    println!("vision             : {}", status.vision_model.as_deref().unwrap_or("off"));
     println!("whisper            : {}{}", status.whisper_model, if status.transcriber_ready { " (ready)" } else { " (loading)" });
     println!("cpu cores used     : {}", status.core_count);
+    println!(
+        "compute budget     : scan {} · extract {} · onnx {} · search {}",
+        status.compute.scan_threads, status.compute.extract_workers, status.compute.ort_threads, status.compute.search_threads
+    );
     engine.shutdown();
     Ok(())
 }
@@ -161,7 +199,9 @@ fn run_search(query: &str, limit: usize, spoken_pcm: Option<Vec<f32>>) -> anyhow
     for (position, hit) in outcome.hits.iter().enumerate() {
         let lanes = [
             hit.sources.semantic.then_some("semantic"),
+            hit.sources.vision.then_some("content"),
             hit.sources.keyword.then_some("keyword"),
+            hit.sources.acoustic.then_some("acoustic"),
             hit.sources.filename.then_some("filename"),
         ]
         .into_iter()
@@ -203,21 +243,22 @@ fn run_scan(extra_root: Option<PathBuf>, watch: bool) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Live one-line progress renderer (\r-updated).
-fn render_progress_bar(label: &str, completed: u64, total: u64, rate_per_second: f64) {
+/// Live one-line progress renderer (\r-updated) with per-kind ETA.
+fn render_progress_bar(label: &str, completed: u64, total: u64, rate_per_second: f64, eta_seconds: Option<f64>) {
     let total = total.max(completed).max(1);
     let fraction = (completed as f64 / total as f64).clamp(0.0, 1.0);
     let bar_width = 28;
     let filled = (fraction * bar_width as f64).round() as usize;
-    let eta = if rate_per_second > 0.01 {
-        let seconds = (total - completed) as f64 / rate_per_second;
-        if seconds >= 60.0 {
-            format!("{:.0}m", seconds / 60.0)
-        } else {
-            format!("{:.0}s", seconds)
+    let eta = match (eta_seconds, rate_per_second > 0.01) {
+        (Some(seconds), true) => {
+            let seconds = seconds.max((total - completed) as f64 / rate_per_second);
+            if seconds >= 60.0 {
+                format!("{:.0}m", seconds / 60.0)
+            } else {
+                format!("{:.0}s", seconds)
+            }
         }
-    } else {
-        "—".to_string()
+        _ => "—".to_string(),
     };
     let bar = "█".repeat(filled) + &"░".repeat(bar_width - filled);
     print!(
@@ -232,27 +273,26 @@ fn render_progress_bar(label: &str, completed: u64, total: u64, rate_per_second:
 fn stream_events_until_idle(engine: &std::sync::Arc<Engine>, started: Instant) {
     let mut idle_ticks = 0;
     let mut last_render = std::time::Instant::now();
-    let mut completed_snapshot = 0u64;
     while idle_ticks < 3 {
         while let Ok(event) = engine.events.try_recv() {
             print_event(&event);
         }
-        if let Ok((pending, busy, done, failed)) = engine.catalog.rag_counters() {
-            let total_files = engine.catalog.total_files().unwrap_or(0) as u64;
-            let completed = (done + failed) as u64;
-            if last_render.elapsed().as_secs_f64() >= 0.5 {
-                let elapsed = last_render.elapsed().as_secs_f64();
-                let rate = completed.saturating_sub(completed_snapshot) as f64 / elapsed.max(0.001);
-                completed_snapshot = completed;
-                last_render = std::time::Instant::now();
-                let label = if engine.is_scanning() { "scanning + indexing" } else { "indexing" };
-                render_progress_bar(label, completed, total_files.max(completed), rate);
-            }
-            if !engine.is_scanning() && pending + busy == 0 {
-                idle_ticks += 1;
-            } else {
-                idle_ticks = 0;
-            }
+        let status = engine.status();
+        if last_render.elapsed().as_secs_f64() >= 0.5 {
+            last_render = std::time::Instant::now();
+            let scanning = status.scanning;
+            let completed = if scanning { status.scan_files_seen } else { status.done + status.failed };
+            let rate = if scanning { status.scan_files_per_second } else { status.index_files_per_second };
+            let eta = if scanning { status.scan_eta_seconds } else { status.index_eta_seconds };
+            let label = if scanning && status.pending > 0 { "scanning + indexing" } else if scanning { "scanning" } else { "indexing" };
+            // First-run scans have no known total: the bar grows with discovery.
+            let total = if scanning { completed.max(1) } else { (status.total_files.max(0) as u64).max(completed) };
+            render_progress_bar(label, completed, total, rate, eta);
+        }
+        if !status.scanning && status.pending == 0 {
+            idle_ticks += 1;
+        } else {
+            idle_ticks = 0;
         }
         std::thread::sleep(Duration::from_millis(250));
     }
@@ -269,6 +309,8 @@ fn print_event(event: &EngineEvent) {
         EngineEvent::EmbedderReady { model_id, neural } => {
             println!("embedder ready: {model_id}{}", if *neural { "" } else { " (fallback)" })
         }
+        EngineEvent::VisionReady { model_id } => println!("vision ready: {model_id}"),
+        EngineEvent::VisionUnavailable { reason } => println!("vision unavailable: {reason}"),
         EngineEvent::ModelDownload { model, downloaded_bytes, total_bytes, finished } => {
             if *finished {
                 println!("model ready: {model}");

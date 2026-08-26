@@ -12,7 +12,8 @@ use std::path::Path;
 #[derive(Debug, Clone)]
 pub enum ListingEntry {
     Directory(DirRow),
-    File(FileRow),
+    /// File row with its resolved path (no per-frame path lookups).
+    File(FileRow, String),
 }
 
 pub struct RenameDialog {
@@ -80,63 +81,26 @@ impl BrowsePanel {
         filter
     }
 
-    /// Reloads the visible listing from the catalog (SQL-side filter + sort).
+    /// Reloads the visible listing through the engine (SQL-side filter + sort).
     pub fn refresh_listing(app: &mut IpicApp) {
-        let connection = match app.engine.catalog.reader() {
-            Ok(connection) => connection,
-            Err(_) => return,
-        };
-        let directory_id = app.current_directory.as_ref().map(|dir| dir.id);
-        let mut listing: Vec<ListingEntry> = match directory_id {
-            None => {
-                // Library view: the real top level of every root — folders
-                // first, then files — never a flattened deep dump.
-                let mut roots = Vec::new();
-                for root in app.engine.current_roots() {
-                    if let Some(root_row) = app
-                        .engine
-                        .catalog
-                        .dir_by_path(&connection, &root.to_string_lossy())
-                        .ok()
-                        .flatten()
-                    {
-                        roots.push(ListingEntry::Directory(root_row));
-                    }
-                }
-                roots
-            }
-            Some(directory_id) => {
-                let directories = app
-                    .engine
-                    .catalog
-                    .tree_children(&connection, Some(directory_id))
-                    .unwrap_or_default();
-                directories.into_iter().map(ListingEntry::Directory).collect::<Vec<_>>()
-            }
-        };
-        if directory_id.is_some() {
-            let files = app
-                .engine
-                .catalog
-                .children(
-                    &connection,
-                    directory_id,
-                    &app.browse.active_filter(),
-                    app.browse.sort_key,
-                    app.browse.sort_ascending,
-                    20_000,
-                )
-                .unwrap_or_default();
-            listing.extend(files.into_iter().map(ListingEntry::File));
-        }
+        let directory = app.current_directory.clone();
+        let (directories, files) = app.engine.directory_children(
+            directory.as_ref(),
+            &app.browse.active_filter(),
+            app.browse.sort_key,
+            app.browse.sort_ascending,
+            20_000,
+        );
+        let mut listing: Vec<ListingEntry> = directories.into_iter().map(ListingEntry::Directory).collect();
+        listing.extend(files.into_iter().map(|(file, path)| ListingEntry::File(file, path)));
         if let Some(selected) = app.browse.selected_row {
             app.selected_file = listing.get(selected).and_then(|entry| match entry {
-                ListingEntry::File(file) => Some((file.clone(), full_path(app, file))),
+                ListingEntry::File(file, path) => Some((file.clone(), path.clone())),
                 ListingEntry::Directory(_) => None,
             });
         }
         app.browse.listing = listing;
-        app.browse.listing_dir = directory_id;
+        app.browse.listing_dir = directory.as_ref().map(|dir| dir.id);
         app.browse.listing_stale = false;
     }
 }
@@ -416,8 +380,8 @@ fn draw_table(ui: &mut Ui, app: &mut IpicApp) {
                             }
                         });
                     }
-                    ListingEntry::File(file) => {
-                        draw_file_row(&mut row, app, file, index);
+                    ListingEntry::File(file, path) => {
+                        draw_file_row(&mut row, app, file, path.clone(), index);
                     }
                 }
             });
@@ -465,7 +429,7 @@ fn draw_keyboard_navigation(ui: &mut Ui, app: &mut IpicApp) {
         app.browse.selected_row = Some(next);
         if let Some(entry) = app.browse.listing.get(next).cloned() {
             app.selected_file = match entry {
-                ListingEntry::File(file) => Some((file.clone(), full_path(app, &file))),
+                ListingEntry::File(file, path) => Some((file, path)),
                 ListingEntry::Directory(_) => None,
             };
         }
@@ -509,8 +473,13 @@ fn row_shift_pressed(row: &egui_extras::TableRow<'_, '_>) -> bool {
     row.response().ctx.input(|input| input.modifiers.shift)
 }
 
-fn draw_file_row(row: &mut egui_extras::TableRow<'_, '_>, app: &mut IpicApp, file: &FileRow, index: usize) {
-    let path = full_path(app, file);
+fn draw_file_row(
+    row: &mut egui_extras::TableRow<'_, '_>,
+    app: &mut IpicApp,
+    file: &FileRow,
+    path: String,
+    index: usize,
+) {
     // TableRow::col unions only the cell container (hover-sensed); row
     // interaction therefore hangs off the widgets' own responses.
     let mut cell_response: Option<egui::Response> = None;
@@ -664,9 +633,7 @@ fn file_context_menu(ui: &mut Ui, app: &mut IpicApp, file: &FileRow, path: &str)
         .clicked()
     {
         if crate::actions::move_to_trash(Path::new(path)).is_ok() {
-            if let Ok(slots) = app.engine.catalog.remove_path(path) {
-                app.engine.release_vector_slots(&slots);
-            }
+            app.engine.remove_path(path);
             app.selected_file = None;
             app.browse.selected_row = None;
             app.browse.listing_stale = true;
@@ -674,19 +641,6 @@ fn file_context_menu(ui: &mut Ui, app: &mut IpicApp, file: &FileRow, path: &str)
         }
         ui.close();
     }
-}
-
-pub fn full_path(app: &IpicApp, file: &FileRow) -> String {
-    let Ok(connection) = app.engine.catalog.reader() else {
-        return file.name.clone();
-    };
-    app.engine
-        .catalog
-        .file_by_id(&connection, file.id)
-        .ok()
-        .flatten()
-        .map(|(_, path)| path)
-        .unwrap_or_else(|| file.name.clone())
 }
 
 pub fn kind_glyph(kind: FileKind) -> RichText {

@@ -1,15 +1,28 @@
-//! Integration: parallel walk → catalog → chunk/embed → hybrid search, all local
-//! with the deterministic hashing embedder (no model downloads, no network).
+//! Integration: engine end-to-end over a temp corpus — parallel walk →
+//! per-root shards → chunk/embed → hybrid search, plus the background
+//! lifecycle (modify re-index, delete frees embeddings). All local with the
+//! deterministic hashing embedder and whisper/vision disabled (no downloads).
 
-use ipic_core::catalog::{Catalog, NewFile};
-use ipic_core::walker::{self, WalkItem};
-use ipic_core::{FileFilter, FileKind, SortKey};
-use ipic_rag::embed::{HashingEmbedder, TextEmbedder};
-use ipic_rag::extract;
-use ipic_rag::search::semantic_search;
-use ipic_rag::vector_store::VectorStore;
+use ipic_core::{Config, FileFilter, FileKind, SortKey};
+use ipic_rag::{Engine, EngineEvent};
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 
-fn build_corpus(root: &std::path::Path) {
+fn test_config(roots: Vec<PathBuf>, data_directory: PathBuf) -> (Config, PathBuf) {
+    (
+        Config {
+            roots,
+            whisper_model: "none".into(),
+            embedder: "hashing".into(),
+            image_embedder: "none".into(),
+            ..Default::default()
+        },
+        data_directory,
+    )
+}
+
+fn build_corpus(root: &Path) {
     let notes = root.join("documents/notes");
     std::fs::create_dir_all(&notes).unwrap();
     std::fs::write(
@@ -24,105 +37,52 @@ fn build_corpus(root: &std::path::Path) {
     std::fs::write(cache.join("noise.js"), "roadmap roadmap roadmap (should be skipped)").unwrap();
 }
 
-fn index_corpus(catalog: &Catalog, root: &std::path::Path, vector_store: &mut VectorStore) {
-    let (item_sender, item_receiver) = crossbeam_channel::unbounded::<WalkItem>();
-    let skip_names = vec!["node_modules".to_string()];
-    let stats = walker::walk_parallel(&[root.to_path_buf()], &skip_names, 4, item_sender).unwrap();
-    assert_eq!(stats.files, 2, "skipped directories must not be indexed");
-
-    let mut directory_ids = catalog.dir_id_map().unwrap();
-    for item in item_receiver.try_recv_iter() {
-        match item {
-            WalkItem::Dir { path, mtime } => {
-                let path_text = path.to_string_lossy().into_owned();
-                catalog.upsert_dirs(&[(path, mtime)]).unwrap();
-                if let Some(id) = catalog.dir_id_by_path(&path_text) {
-                    directory_ids.insert(path_text, id);
-                }
-            }
-            WalkItem::File { path, kind, size, mtime } => {
-                let parent = path.parent().unwrap().to_string_lossy().into_owned();
-                let file_name = path.file_name().unwrap().to_string_lossy().into_owned();
-                catalog
-                    .upsert_files(&[NewFile {
-                        dir_id: *directory_ids.get(&parent).unwrap(),
-                        name: file_name,
-                        kind,
-                        size,
-                        mtime,
-                    }])
-                    .unwrap();
-                // Inline "pipeline": text files get chunked, embedded, indexed.
-                if kind == FileKind::Text {
-                    let text = extract::extract_text(&path, kind, 1 << 20).unwrap().unwrap_or_default();
-                    let chunks = extract::chunk_text(&text);
-                    if !chunks.is_empty() {
-                        let references: Vec<(i64, &str)> =
-                            chunks.iter().map(|chunk| (last_file_id(catalog), chunk.as_str())).collect();
-                        let rowids = catalog.insert_chunks(&references).unwrap();
-                        let embedder = HashingEmbedder;
-                        let embedded: Vec<Vec<f32>> =
-                            chunks.iter().map(|chunk| embedder.embed_batch(std::slice::from_ref(chunk)).unwrap()[0].clone()).collect();
-                        let slots = vector_store.append_batch(&rowids, &embedded).unwrap();
-                        let assignments: Vec<(i64, i64)> =
-                            rowids.iter().cloned().zip(slots.iter().cloned()).collect();
-                        catalog.assign_vector_slots(&assignments).unwrap();
-                    }
-                }
+/// Drains events until the engine reports idle (or the deadline expires).
+fn wait_until_idle(engine: &Arc<Engine>, timeout: Duration) -> bool {
+    let started = Instant::now();
+    let mut saw_scan = false;
+    while started.elapsed() < timeout {
+        while let Ok(event) = engine.events.try_recv() {
+            if matches!(event, EngineEvent::ScanFinished { .. }) {
+                saw_scan = true;
             }
         }
-    }
-}
-
-fn last_file_id(catalog: &Catalog) -> i64 {
-    let connection = catalog.reader().unwrap();
-    connection.query_row("SELECT MAX(id) FROM files", [], |row| row.get(0)).unwrap()
-}
-
-// crossbeam receivers expose iter(); small helper for readability.
-trait TryRecvIter: Sized {
-    fn try_recv_iter(self) -> Vec<WalkItem>;
-}
-
-impl TryRecvIter for crossbeam_channel::Receiver<WalkItem> {
-    fn try_recv_iter(self) -> Vec<WalkItem> {
-        let mut items = Vec::new();
-        while let Ok(item) = self.try_recv() {
-            items.push(item);
+        let status = engine.status();
+        if saw_scan && !status.scanning && status.pending == 0 && status.total_files > 0 {
+            return true;
         }
-        items
+        std::thread::sleep(Duration::from_millis(100));
     }
+    false
 }
 
 #[test]
-fn scan_catalog_and_semantic_search_end_to_end() {
+fn scan_shard_and_search_end_to_end() {
     let base = std::env::temp_dir().join(format!("ipic-e2e-{}", std::process::id()));
-    let root = base.join("corpus");
     let _ = std::fs::remove_dir_all(&base);
-    build_corpus(&root);
+    let corpus = base.join("corpus");
+    build_corpus(&corpus);
+    let (config, data_directory) = test_config(vec![corpus.clone()], base.join("data"));
 
-    let catalog = Catalog::open(&base.join("data/catalog.db")).unwrap();
-    let embedder = HashingEmbedder;
-    let (mut vector_store, compatible) =
-        VectorStore::open(&base.join("data"), embedder.dim(), embedder.model_id()).unwrap();
-    assert!(compatible);
-    index_corpus(&catalog, &root, &mut vector_store);
+    let engine = Engine::launch_with_data_dir(config, data_directory).unwrap();
+    assert!(wait_until_idle(&engine, Duration::from_secs(30)), "engine must settle");
+    let status = engine.status();
+    assert_eq!(status.total_files, 2, "skipped directories must not be indexed");
 
-    // Directory browsing: filters + sorting work against the catalog.
-    let connection = catalog.reader().unwrap();
-    let notes_path = root.join("documents/notes").canonicalize().unwrap();
-    let notes_dir = catalog.dir_by_path(&connection, &notes_path.to_string_lossy()).unwrap().unwrap();
-    let all_entries =
-        catalog.children(&connection, Some(notes_dir.id), &FileFilter::default(), SortKey::Name, true, 100).unwrap();
+    // Browsing: filters + sorting through the engine facade.
+    let notes_path = corpus.join("documents/notes").canonicalize().unwrap();
+    let notes_directory = engine.dir_by_path(&notes_path.to_string_lossy()).unwrap();
+    let (_directories, all_entries) = engine
+        .directory_children(Some(&notes_directory), &FileFilter::default(), SortKey::Name, true, 100);
     assert_eq!(all_entries.len(), 2);
-    let text_only_filter = FileFilter { kinds: vec![FileKind::Text], ..Default::default() };
-    let text_entries =
-        catalog.children(&connection, Some(notes_dir.id), &text_only_filter, SortKey::Size, false, 100).unwrap();
-    assert!(text_entries.iter().all(|entry| entry.kind == FileKind::Text));
-    assert!(text_entries[0].size >= text_entries[1].size, "size sort descending");
+    let text_filter = FileFilter { kinds: vec![FileKind::Text], ..Default::default() };
+    let (_dirs, text_entries) =
+        engine.directory_children(Some(&notes_directory), &text_filter, SortKey::Size, false, 100);
+    assert!(text_entries.iter().all(|(entry, _)| entry.kind == FileKind::Text));
+    assert!(text_entries[0].0.size >= text_entries[1].0.size, "size sort descending");
 
-    // Hybrid search: semantic lane finds the roadmap document; grocery list must not rank.
-    let outcome = semantic_search(&catalog, &connection, &vector_store, &embedder, "quarterly roadmap priorities", 10).unwrap();
+    // Hybrid search: semantic lane finds the roadmap document.
+    let outcome = engine.semantic_search("quarterly roadmap priorities", 10).unwrap();
     assert!(!outcome.hits.is_empty(), "search must return hits");
     assert!(
         outcome.hits[0].path.ends_with("quarterly-roadmap.md"),
@@ -131,13 +91,92 @@ fn scan_catalog_and_semantic_search_end_to_end() {
     );
     assert!(outcome.hits[0].sources.semantic, "semantic lane must contribute");
 
-    // Keyword-only query exercises the FTS5 lane.
-    let keyword_outcome = semantic_search(&catalog, &connection, &vector_store, &embedder, "milk", 10).unwrap();
+    let keyword_outcome = engine.semantic_search("milk", 10).unwrap();
     assert!(keyword_outcome.hits.iter().any(|hit| hit.path.ends_with("grocery-list.txt")));
 
-    // Filename lane.
-    let name_outcome = semantic_search(&catalog, &connection, &vector_store, &embedder, "roadmap", 10).unwrap();
+    let name_outcome = engine.semantic_search("roadmap", 10).unwrap();
     assert!(name_outcome.hits.iter().any(|hit| hit.path.ends_with("quarterly-roadmap.md")));
 
+    engine.shutdown();
+    let _ = std::fs::remove_dir_all(&base);
+}
+
+#[test]
+fn shards_partition_roots_and_merge_search() {
+    let base = std::env::temp_dir().join(format!("ipic-shards-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    let left = base.join("left");
+    let right = base.join("right");
+    std::fs::create_dir_all(&left).unwrap();
+    std::fs::create_dir_all(&right).unwrap();
+    std::fs::write(left.join("alpha-notes.md"), "the alpha telescope observes distant nebulae").unwrap();
+    std::fs::write(right.join("beta-notes.md"), "the beta telescope tracks asteroid orbits").unwrap();
+
+    let (config, data_directory) = test_config(vec![left.clone(), right.clone()], base.join("data"));
+    let engine = Engine::launch_with_data_dir(config, data_directory).unwrap();
+    assert!(wait_until_idle(&engine, Duration::from_secs(30)), "engine must settle");
+    assert_eq!(engine.status().total_files, 2);
+    assert_eq!(engine.current_roots().len(), 2, "one shard per root");
+
+    // Cross-shard query: both roots surface, ranked by content.
+    let outcome = engine.semantic_search("telescope astronomy", 10).unwrap();
+    let paths: Vec<&str> = outcome.hits.iter().map(|hit| hit.path.as_str()).collect();
+    assert!(paths.iter().any(|path| path.ends_with("alpha-notes.md")));
+    assert!(paths.iter().any(|path| path.ends_with("beta-notes.md")));
+
+    engine.shutdown();
+    let _ = std::fs::remove_dir_all(&base);
+}
+
+#[test]
+fn modify_reindexes_and_delete_frees_embeddings() {
+    let base = std::env::temp_dir().join(format!("ipic-lifecycle-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    let corpus = base.join("corpus");
+    std::fs::create_dir_all(&corpus).unwrap();
+    let target = corpus.join("journal.md");
+    std::fs::write(&target, "original entry about sailing").unwrap();
+
+    let (config, data_directory) = test_config(vec![corpus.clone()], base.join("data"));
+    let engine = Engine::launch_with_data_dir(config, data_directory).unwrap();
+    assert!(wait_until_idle(&engine, Duration::from_secs(30)), "engine must settle");
+    let vectors_after_first_index = engine.status().vector_count;
+    assert!(vectors_after_first_index > 0, "text chunks must be embedded");
+
+    // Modification on disk: the watcher must reset and re-embed the file.
+    std::fs::write(&target, "revised entry about mountaineering expeditions").unwrap();
+    let deadline = Instant::now() + Duration::from_secs(30);
+    let mut reindexed = false;
+    while Instant::now() < deadline {
+        let outcome = engine.semantic_search("mountaineering expeditions", 5).unwrap();
+        if outcome.hits.iter().any(|hit| hit.path.ends_with("journal.md")) {
+            reindexed = true;
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(200));
+    }
+    assert!(reindexed, "modified content must be re-indexed and findable");
+    // Old content is gone: the stale chunk's slot was freed, not duplicated.
+    let stale = engine.semantic_search("sailing", 5).unwrap();
+    assert!(!stale.hits.iter().any(|hit| hit.path.ends_with("journal.md") && hit.sources.semantic));
+
+    // Deletion: rows, chunks and vector slots all disappear.
+    let vectors_before_delete = engine.status().vector_count;
+    std::fs::remove_file(&target).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(30);
+    let mut deleted = false;
+    while Instant::now() < deadline {
+        while engine.events.try_recv().is_ok() {}
+        let outcome = engine.semantic_search("mountaineering", 5).unwrap();
+        if !outcome.hits.iter().any(|hit| hit.path.ends_with("journal.md")) {
+            deleted = true;
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(200));
+    }
+    assert!(deleted, "deleted file must vanish from search");
+    assert!(engine.status().vector_count < vectors_before_delete, "slots must be freed");
+
+    engine.shutdown();
     let _ = std::fs::remove_dir_all(&base);
 }

@@ -2858,6 +2858,7 @@ dependencies = [
  "anyhow",
  "crossbeam-channel",
  "fastembed",
+ "image",
  "ipic-core",
  "memmap2",
  "pdf-extract",

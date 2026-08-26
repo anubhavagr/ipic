@@ -4,7 +4,7 @@
 use egui_kittest::kittest::{by, Queryable};
 use egui_kittest::Harness;
 use ipic::{theme, IpicApp};
-use ipic_core::{Config, FileFilter, SortKey};
+use ipic_core::{Config, SortKey};
 use ipic_rag::{Engine, EngineStatus};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -69,6 +69,7 @@ impl TestWorld {
             roots: vec![self.corpus.clone()],
             whisper_model: "none".into(),
             embedder: "hashing".into(),
+            image_embedder: "none".into(),
             ..Default::default()
         }
     }
@@ -185,7 +186,7 @@ fn listing_names(harness: &Harness<'_, IpicApp>) -> Vec<String> {
         .listing
         .iter()
         .map(|entry| match entry {
-            ipic::browse::ListingEntry::File(file) => file.name.clone(),
+            ipic::browse::ListingEntry::File(file, _path) => file.name.clone(),
             ipic::browse::ListingEntry::Directory(directory) => directory.name.clone(),
         })
         .collect()
@@ -311,16 +312,9 @@ fn sort_combo_reorders_for_each_key() {
     );
 
     // Length: inject a duration for the audio file; SQL sorts NULLs first.
-    let connection = engine.catalog.reader().unwrap();
-    let bravo_id = engine
-        .catalog
-        .children(&connection, None, &FileFilter::default(), SortKey::Name, true, 100)
-        .unwrap()
-        .into_iter()
-        .find(|file| file.name == "bravo-symphony.mp3")
-        .unwrap()
-        .id;
-    engine.catalog.set_duration(bravo_id, 4800.0).unwrap();
+    let bravo_path = world.corpus.join("bravo-symphony.mp3");
+    let bravo_path = bravo_path.canonicalize().unwrap_or(bravo_path);
+    engine.set_duration(&bravo_path.to_string_lossy(), 4800.0);
     click_sort_combo_item(&mut harness, "Sort: Modified", "Length");
     assert_eq!(harness.state().browse.sort_key, SortKey::Duration);
     assert_eq!(

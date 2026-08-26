@@ -40,6 +40,7 @@ impl TestWorld {
             roots: vec![self.corpus.clone()],
             whisper_model: "none".into(),
             embedder: "hashing".into(),
+            image_embedder: "none".into(),
             ..Default::default()
         }
     }
@@ -226,7 +227,7 @@ fn typing_filters_browse_listing_live() {
     assert_eq!(state.browse.name_filter_active, "mission");
     assert!(
         state.browse.listing.iter().all(|entry| match entry {
-            ipic::browse::ListingEntry::File(file) => file.name.contains("mission"),
+            ipic::browse::ListingEntry::File(file, _path) => file.name.contains("mission"),
             ipic::browse::ListingEntry::Directory(_) => false,
         }) && !state.browse.listing.is_empty(),
         "listing must shrink to name matches, got {:?}",
@@ -256,7 +257,7 @@ fn escape_clears_search_back_to_browse() {
     assert!(state.results.hits.is_empty(), "Esc must drop the results");
     assert!(
         state.browse.listing.iter().any(|entry| matches!(entry,
-            ipic::browse::ListingEntry::File(file) if file.name == "mission-briefing.md")),
+            ipic::browse::ListingEntry::File(file, _path) if file.name == "mission-briefing.md")),
         "Esc must restore the full browse listing"
     );
     assert!(

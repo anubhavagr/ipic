@@ -4,6 +4,7 @@ use crate::app::IpicApp;
 use crate::browse::kind_glyph;
 use crate::theme;
 use egui::{Color32, RichText, Ui};
+use ipic_core::FileKind;
 use ipic_rag::SearchHit;
 
 #[derive(Default)]
@@ -73,7 +74,15 @@ fn draw_result_card(ui: &mut Ui, app: &mut IpicApp, position: usize, hit: &Searc
         });
     let frame_response = frame.show(ui, |ui| {
         ui.horizontal_top(|ui| {
-            ui.label(kind_glyph(hit.file.kind).size(18.0));
+            // Content-searchable images deserve their pixels in the results.
+            if hit.file.kind == FileKind::Image {
+                ui.add(
+                    egui::Image::new(format!("file://{}", hit.path))
+                        .fit_to_exact_size(egui::vec2(72.0, 72.0)),
+                );
+            } else {
+                ui.label(kind_glyph(hit.file.kind).size(18.0));
+            }
             ui.vertical(|ui| {
                 ui.horizontal(|ui| {
                     ui.label(RichText::new(format!("{}.", position + 1)).color(theme::TEXT_DIM).small().strong());
@@ -94,12 +103,10 @@ fn draw_result_card(ui: &mut Ui, app: &mut IpicApp, position: usize, hit: &Searc
                 if path_button.clicked() {
                     select_hit(app, position, hit, false);
                     if let Some(parent) = std::path::Path::new(&hit.path).parent()
-                        && let Ok(connection) = app.engine.catalog.reader()
-                            && let Some(directory) =
-                                app.engine.catalog.dir_by_path(&connection, &parent.to_string_lossy()).ok().flatten()
-                            {
-                                app.navigate_to(Some(directory));
-                            }
+                        && let Some(directory) = app.engine.dir_by_path(&parent.to_string_lossy())
+                    {
+                        app.navigate_to(Some(directory));
+                    }
                 }
                 if !hit.snippet.is_empty() {
                     ui.add_space(2.0);
@@ -163,6 +170,7 @@ fn result_context_menu(ui: &mut Ui, app: &mut IpicApp, hit: &SearchHit) {
 fn draw_lane_badges(ui: &mut Ui, hit: &SearchHit) {
     let lanes = [
         (hit.sources.semantic, "semantic", theme::ACCENT),
+        (hit.sources.vision, "content", theme::ACCENT),
         (hit.sources.keyword, "keyword", theme::SUCCESS),
         (hit.sources.acoustic, "acoustic", theme::SUCCESS),
         (hit.sources.filename, "filename", theme::WARNING),

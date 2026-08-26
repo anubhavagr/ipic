@@ -40,6 +40,7 @@ impl TestWorld {
             roots: vec![self.corpus.clone()],
             whisper_model: "none".into(),
             embedder: "hashing".into(),
+            image_embedder: "none".into(),
             ..Default::default()
         }
     }

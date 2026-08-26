@@ -20,10 +20,9 @@ pub fn draw(ui: &mut Ui, app: &mut IpicApp) {
                 .map(|dir| dir.path == root_text)
                 .unwrap_or(false);
             if selectable_row(ui, is_current, "Volume", &root_text)
-                && let Ok(connection) = app.engine.catalog.reader()
-                    && let Some(dir) = app.engine.catalog.dir_by_path(&connection, &root_text).ok().flatten() {
-                        app.navigate_to(Some(dir));
-                    }
+                && let Some(dir) = app.engine.dir_by_path(&root_text) {
+                    app.navigate_to(Some(dir));
+                }
         }
         ui.add_space(10.0);
         section_label(ui, "Filter by kind");
@@ -33,10 +32,9 @@ pub fn draw(ui: &mut Ui, app: &mut IpicApp) {
         egui::ScrollArea::vertical().show(ui, |ui| {
             for root in app.config.roots.clone() {
                 let root_text = root.to_string_lossy().into_owned();
-                if let Ok(connection) = app.engine.catalog.reader()
-                    && let Some(dir) = app.engine.catalog.dir_by_path(&connection, &root_text).ok().flatten() {
-                        draw_tree_node(ui, app, &dir, 0);
-                    }
+                if let Some(dir) = app.engine.dir_by_path(&root_text) {
+                    draw_tree_node(ui, app, &dir, 0);
+                }
             }
         });
     });
@@ -58,12 +56,7 @@ fn selectable_row(ui: &mut Ui, selected: bool, glyph: &str, label: &str) -> bool
 }
 
 fn draw_kind_filters(ui: &mut Ui, app: &mut IpicApp) {
-    let connection = match app.engine.catalog.reader() {
-        Ok(connection) => connection,
-        Err(_) => return,
-    };
-    let Ok(stats) = app.engine.catalog.kind_stats(&connection) else { return };
-    for (kind, count, total_bytes) in stats {
+    for (kind, count, total_bytes) in app.engine.kind_stats() {
         let selected = app.browse.kind_filter.contains(&kind);
         let fill = if selected { theme::ACCENT_SOFT } else { theme::SURFACE_CARD };
         let label = format!("{}  {} · {}", kind_glyph(kind).text(), kind.label(), count);
@@ -99,17 +92,7 @@ fn draw_tree_node(ui: &mut Ui, app: &mut IpicApp, dir: &DirRow, depth: usize) {
         let expanded = app.expanded_tree_nodes.contains(&dir.id);
         let is_current = app.current_directory.as_ref().map(|current| current.id == dir.id).unwrap_or(false);
         let arrow = if expanded { "▾" } else { "▸" };
-        let has_children = {
-            match app.engine.catalog.reader() {
-                Ok(connection) => app
-                    .engine
-                    .catalog
-                    .tree_children(&connection, Some(dir.id))
-                    .map(|children| !children.is_empty())
-                    .unwrap_or(false),
-                Err(_) => false,
-            }
-        };
+        let has_children = !app.engine.tree_children_empty(dir);
         let toggle = ui.add(
             egui::Button::new(RichText::new(arrow).color(theme::TEXT_DIM))
                 .fill(egui::Color32::TRANSPARENT)
@@ -143,11 +126,9 @@ fn draw_tree_node(ui: &mut Ui, app: &mut IpicApp, dir: &DirRow, depth: usize) {
             ui.label(RichText::new(dir.file_count.to_string()).small().color(theme::TEXT_DIM));
         }
     });
-    if app.expanded_tree_nodes.contains(&dir.id)
-        && let Ok(connection) = app.engine.catalog.reader()
-            && let Ok(children) = app.engine.catalog.tree_children(&connection, Some(dir.id)) {
-                for child in children {
-                    draw_tree_node(ui, app, &child, depth + 1);
-                }
-            }
+    if app.expanded_tree_nodes.contains(&dir.id) {
+        for child in app.engine.tree_children(dir) {
+            draw_tree_node(ui, app, &child, depth + 1);
+        }
+    }
 }

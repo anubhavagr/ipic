@@ -144,7 +144,9 @@ fn process_dir(
         if file_type.is_dir() {
             let name = entry.file_name();
             let name = name.to_string_lossy();
-            if !skip.contains(name.as_ref()) {
+            // Dot-directories (.git, .Trash, app bundles' internals) are noise;
+            // the skip list still covers named non-hidden directories.
+            if !skip.contains(name.as_ref()) && !name.starts_with('.') {
                 pending.fetch_add(1, Ordering::Release);
                 if dir_tx.send(path).is_err() {
                     pending.fetch_sub(1, Ordering::AcqRel);

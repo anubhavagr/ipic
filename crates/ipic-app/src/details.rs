@@ -78,7 +78,7 @@ fn draw_preview(ui: &mut Ui, app: &mut IpicApp, file: &ipic_core::FileRow, path:
         }
         FileKind::Text | FileKind::Pdf | FileKind::Audio | FileKind::Video => {
             section(ui, if file.kind.is_rag() { "Indexed content" } else { "Preview" });
-            let excerpt = first_chunk_text(app, file.id);
+            let excerpt = first_chunk_text(app, file, path);
             match excerpt {
                 Some(text) => {
                     let frame = egui::Frame::new().fill(theme::SURFACE_CARD).corner_radius(egui::CornerRadius::same(8)).inner_margin(egui::Margin::same(10));
@@ -110,13 +110,6 @@ fn section(ui: &mut Ui, label: &str) {
 }
 
 /// First indexed chunk of a file (its extract or transcript).
-fn first_chunk_text(app: &mut IpicApp, file_id: i64) -> Option<String> {
-    let connection = app.engine.catalog.reader().ok()?;
-    connection
-        .query_row(
-            "SELECT text FROM chunks WHERE file_id = ?1 ORDER BY rowid LIMIT 1",
-            rusqlite::params![file_id],
-            |row| row.get::<_, String>(0),
-        )
-        .ok()
+fn first_chunk_text(app: &mut IpicApp, file: &ipic_core::FileRow, path: &str) -> Option<String> {
+    app.engine.first_chunk_text(file.id, path)
 }

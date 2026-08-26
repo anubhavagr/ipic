@@ -28,12 +28,37 @@ CREATE TABLE IF NOT EXISTS files(
 );
 CREATE INDEX IF NOT EXISTS files_dir ON files(dir_id);
 CREATE INDEX IF NOT EXISTS files_rag ON files(rag);
+CREATE INDEX IF NOT EXISTS files_claim ON files(rag, kind, id);
 CREATE VIRTUAL TABLE IF NOT EXISTS chunks USING fts5(text, file_id UNINDEXED, vec_slot UNINDEXED);
-CREATE TABLE IF NOT EXISTS audio_fingerprints(
-  file_id INTEGER PRIMARY KEY REFERENCES files(id) ON DELETE CASCADE,
-  vec_slot INTEGER NOT NULL
+CREATE TABLE IF NOT EXISTS file_vectors(
+  store TEXT NOT NULL,
+  file_id INTEGER NOT NULL REFERENCES files(id) ON DELETE CASCADE,
+  vec_slot INTEGER NOT NULL,
+  PRIMARY KEY(store, file_id)
 );
 ";
+
+/// Derived-vector store names keyed in `file_vectors`.
+pub const STORE_AUDIO: &str = "audio";
+pub const STORE_IMAGE: &str = "image";
+
+/// Vector-store capacity released by file removal or re-index.
+#[derive(Default)]
+pub struct RemovedSlots {
+    pub chunk_slots: Vec<i64>,
+    /// (store name, slot) pairs for audio fingerprints and image embeddings.
+    pub derived_slots: Vec<(String, i64)>,
+}
+
+impl RemovedSlots {
+    pub fn is_empty(&self) -> bool {
+        self.chunk_slots.is_empty() && self.derived_slots.is_empty()
+    }
+
+    pub fn derived_in(&self, store: &str) -> Vec<i64> {
+        self.derived_slots.iter().filter(|(name, _)| name == store).map(|(_, slot)| *slot).collect()
+    }
+}
 
 /// New file row for upsert (parent resolved by caller).
 pub struct NewFile {
@@ -50,7 +75,12 @@ pub struct NewChunk<'a> {
 }
 
 pub struct Catalog {
+    /// Single writer; SQLite WAL permits exactly one writer at a time.
     conn: std::sync::Mutex<Connection>,
+    /// Dedicated reader so hot lookups and status counters never queue
+    /// behind bulk write transactions (the writer mutex was a pipeline
+    /// bottleneck at six-figure file counts).
+    read_conn: std::sync::Mutex<Connection>,
     path: PathBuf,
 }
 
@@ -59,7 +89,9 @@ fn open_connection(path: &Path, read_only: bool) -> CoreResult<Connection> {
         conn.pragma_update(None, "journal_mode", "WAL")?;
         conn.pragma_update(None, "synchronous", "NORMAL")?;
         conn.pragma_update(None, "mmap_size", 268_435_456i64)?;
-        conn.pragma_update(None, "cache_size", -65_536i64)?; // 64 MiB page cache
+        // 16 MiB page cache: shards multiply (8 roots → 8 connections), so a
+        // bigger per-connection cache would dominate resident memory.
+        conn.pragma_update(None, "cache_size", -16_384i64)?;
         conn.pragma_update(None, "foreign_keys", "ON")?;
         if read_only {
             conn.pragma_update(None, "query_only", true)?;
@@ -89,7 +121,22 @@ impl Catalog {
                AND id NOT IN (SELECT DISTINCT file_id FROM chunks)",
             [],
         )?;
-        Ok(Self { conn: conn.into(), path: path.to_path_buf() })
+        // Pre-sharding catalogs kept acoustic slots in audio_fingerprints.
+        let legacy_table: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'audio_fingerprints'",
+            [],
+            |row| row.get(0),
+        )?;
+        if legacy_table == 1 {
+            conn.execute(
+                "INSERT OR IGNORE INTO file_vectors(store, file_id, vec_slot)
+                 SELECT 'audio', file_id, vec_slot FROM audio_fingerprints",
+                [],
+            )?;
+            conn.execute("DROP TABLE audio_fingerprints", [])?;
+        }
+        let read_conn = open_connection(path, true)?;
+        Ok(Self { conn: conn.into(), read_conn: read_conn.into(), path: path.to_path_buf() })
     }
 
     /// Fresh read connection for use on any thread (WAL permits concurrent readers).
@@ -108,14 +155,14 @@ impl Catalog {
     }
 
     /// Deletes rows not reached by the last scan; returns vector slots to free.
-    pub fn finish_full_scan(&self) -> CoreResult<Vec<i64>> {
+    pub fn finish_full_scan(&self) -> CoreResult<RemovedSlots> {
         let conn = self.conn.lock().unwrap();
         let tx = conn.unchecked_transaction()?;
         let stale_file_ids: Vec<i64> = {
             let mut statement = tx.prepare("SELECT id FROM files WHERE seen = 0")?;
             statement.query_map([], |row| row.get(0))?.collect::<Result<_, _>>()?
         };
-        let slots = Self::delete_files_chunks(&tx, &stale_file_ids)?;
+        let slots = Self::delete_file_derived(&tx, &stale_file_ids)?;
         tx.execute("DELETE FROM files WHERE seen = 0", [])?;
         tx.execute(
             "DELETE FROM dirs WHERE id NOT IN (SELECT DISTINCT dir_id FROM files)
@@ -127,14 +174,14 @@ impl Catalog {
         Ok(slots)
     }
 
-    /// Removes chunks of files about to be re-indexed; returns freed vector slots.
-    pub fn delete_chunks_for_files(&self, file_ids: &[i64]) -> CoreResult<Vec<i64>> {
+    /// Removes chunks and derived vectors of files about to be re-indexed.
+    pub fn clear_file_derived(&self, file_ids: &[i64]) -> CoreResult<RemovedSlots> {
         if file_ids.is_empty() {
-            return Ok(Vec::new());
+            return Ok(RemovedSlots::default());
         }
         let conn = self.conn.lock().unwrap();
         let tx = conn.unchecked_transaction()?;
-        let slots = Self::delete_files_chunks(&tx, file_ids)?;
+        let slots = Self::delete_file_derived(&tx, file_ids)?;
         tx.commit()?;
         Ok(slots)
     }
@@ -173,7 +220,7 @@ impl Catalog {
 
     /// Directory id lookup by absolute path.
     pub fn dir_id_by_path(&self, path: &str) -> Option<i64> {
-        self.conn
+        self.read_conn
             .lock()
             .unwrap()
             .query_row("SELECT id FROM dirs WHERE path = ?1", params![path], |row| row.get(0))
@@ -195,67 +242,75 @@ impl Catalog {
         Ok(rowids)
     }
 
-    /// Swaps a file's acoustic fingerprint slot; returns the old slot, if any.
-    pub fn set_fingerprint_slot(&self, file_id: i64, slot: i64) -> CoreResult<Option<i64>> {
+    /// Swaps a file's derived-vector slot in one store; returns the old slot.
+    pub fn set_derived_slot(&self, store: &str, file_id: i64, slot: i64) -> CoreResult<Option<i64>> {
         let conn = self.conn.lock().unwrap();
         let previous = conn
             .query_row(
-                "SELECT vec_slot FROM audio_fingerprints WHERE file_id = ?1",
-                params![file_id],
+                "SELECT vec_slot FROM file_vectors WHERE store = ?1 AND file_id = ?2",
+                params![store, file_id],
                 |row| row.get::<_, i64>(0),
             )
             .optional()?;
         conn.execute(
-            "INSERT INTO audio_fingerprints(file_id, vec_slot) VALUES (?1, ?2)
-             ON CONFLICT(file_id) DO UPDATE SET vec_slot = excluded.vec_slot",
-            params![file_id, slot],
+            "INSERT INTO file_vectors(store, file_id, vec_slot) VALUES (?1, ?2, ?3)
+             ON CONFLICT(store, file_id) DO UPDATE SET vec_slot = excluded.vec_slot",
+            params![store, file_id, slot],
         )?;
         Ok(previous)
     }
 
-    /// Frees fingerprint rows whose file vanished (cascades, scheme wipes).
-    pub fn drain_orphan_fingerprints(&self) -> CoreResult<Vec<i64>> {
+    /// Frees derived rows whose file vanished (cascades, scheme wipes).
+    pub fn drain_orphan_derived(&self, store: &str) -> CoreResult<Vec<i64>> {
         let conn = self.conn.lock().unwrap();
         let slots: Vec<i64> = conn
-            .prepare("SELECT vec_slot FROM audio_fingerprints WHERE file_id NOT IN (SELECT id FROM files)")?
-            .query_map([], |row| row.get(0))?
+            .prepare(
+                "SELECT vec_slot FROM file_vectors WHERE store = ?1
+                  AND file_id NOT IN (SELECT id FROM files)",
+            )?
+            .query_map(params![store], |row| row.get(0))?
             .collect::<Result<_, _>>()?;
         conn.execute(
-            "DELETE FROM audio_fingerprints WHERE file_id NOT IN (SELECT id FROM files)",
-            [],
+            "DELETE FROM file_vectors WHERE store = ?1 AND file_id NOT IN (SELECT id FROM files)",
+            params![store],
         )?;
         Ok(slots)
     }
 
-    /// Empties the fingerprint table, returning (file_id, slot) pairs to free.
-    pub fn drain_fingerprints(&self) -> CoreResult<Vec<i64>> {
+    /// Empties one store's rows, returning slots to free (scheme wipe).
+    pub fn drain_derived(&self, store: &str) -> CoreResult<Vec<i64>> {
         let conn = self.conn.lock().unwrap();
         let slots: Vec<i64> = conn
-            .prepare("SELECT vec_slot FROM audio_fingerprints")?
-            .query_map([], |row| row.get(0))?
+            .prepare("SELECT vec_slot FROM file_vectors WHERE store = ?1")?
+            .query_map(params![store], |row| row.get(0))?
             .collect::<Result<_, _>>()?;
-        conn.execute("DELETE FROM audio_fingerprints", [])?;
+        conn.execute("DELETE FROM file_vectors WHERE store = ?1", params![store])?;
         Ok(slots)
     }
 
-    /// Fingerprint slots released by file removal; rows are deleted too.
-    pub fn take_fingerprint_slots(&self, file_ids: &[i64]) -> CoreResult<Vec<i64>> {
+    /// Derived slots released by file removal; rows are deleted too.
+    pub fn take_derived_slots(&self, store: &str, file_ids: &[i64]) -> CoreResult<Vec<i64>> {
         if file_ids.is_empty() {
             return Ok(Vec::new());
         }
         let conn = self.conn.lock().unwrap();
         let placeholders = vec!["?"; file_ids.len()].join(",");
+        let select_sql =
+            format!("SELECT vec_slot FROM file_vectors WHERE store = ? AND file_id IN ({placeholders})");
+        let delete_sql =
+            format!("DELETE FROM file_vectors WHERE store = ? AND file_id IN ({placeholders})");
         let slots: Vec<i64> = {
-            let mut statement =
-                conn.prepare(&format!("SELECT vec_slot FROM audio_fingerprints WHERE file_id IN ({placeholders})"))?;
+            let mut statement = conn.prepare(&select_sql)?;
+            let mut bind: Vec<Box<dyn rusqlite::types::ToSql>> = vec![Box::new(store.to_string())];
+            bind.extend(file_ids.iter().map(|id| Box::new(*id) as Box<dyn rusqlite::types::ToSql>));
             statement
-                .query_map(params_from_iter(file_ids), |row| row.get(0))?
+                .query_map(params_from_iter(bind.iter().map(|b| b.as_ref())), |row| row.get(0))?
                 .collect::<Result<_, _>>()?
         };
-        conn.execute(
-            &format!("DELETE FROM audio_fingerprints WHERE file_id IN ({placeholders})"),
-            params_from_iter(file_ids),
-        )?;
+        let mut statement = conn.prepare(&delete_sql)?;
+        let mut bind: Vec<Box<dyn rusqlite::types::ToSql>> = vec![Box::new(store.to_string())];
+        bind.extend(file_ids.iter().map(|id| Box::new(*id) as Box<dyn rusqlite::types::ToSql>));
+        statement.execute(params_from_iter(bind.iter().map(|b| b.as_ref())))?;
         Ok(slots)
     }
 
@@ -285,7 +340,7 @@ impl Catalog {
 
     /// Rag-status counts: (pending, busy, done, failed).
     pub fn rag_counters(&self) -> CoreResult<(i64, i64, i64, i64)> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.read_conn.lock().unwrap();
         let counters = conn.query_row(
             "SELECT SUM(rag = 0), SUM(rag = 1), SUM(rag = 2), SUM(rag = 3) FROM files",
             [],
@@ -301,13 +356,65 @@ impl Catalog {
         Ok(counters)
     }
 
+    /// Per-kind rag counts (pending incl. busy, done, failed) for ETA math —
+    /// an hour of audio and a JPEG do not cost the same second.
+    pub fn rag_kind_counters(&self) -> CoreResult<Vec<(FileKind, i64, i64, i64)>> {
+        let conn = self.read_conn.lock().unwrap();
+        let mut statement = conn.prepare(
+            "SELECT kind, SUM(rag IN (0, 1)), SUM(rag = 2), SUM(rag = 3)
+             FROM files WHERE kind IN ('text','pdf','audio','video','image') GROUP BY kind",
+        )?;
+        let rows = statement
+            .query_map([], |row| {
+                Ok((
+                    FileKind::from_token(&row.get::<_, String>(0)?),
+                    row.get::<_, Option<i64>>(1)?.unwrap_or(0),
+                    row.get::<_, Option<i64>>(2)?.unwrap_or(0),
+                    row.get::<_, Option<i64>>(3)?.unwrap_or(0),
+                ))
+            })?
+            .collect::<Result<_, _>>()?;
+        Ok(rows)
+    }
+
+    /// Refreshes query-planner statistics after bulk scans (FTS5 ranking).
+    pub fn analyze(&self) -> CoreResult<()> {
+        self.conn.lock().unwrap().execute("ANALYZE", [])?;
+        Ok(())
+    }
+
+    /// Inserts or updates one file row, creating any missing ancestor dirs.
+    pub fn upsert_single_file(&self, path: &Path) -> CoreResult<()> {
+        let parent = path.parent().unwrap_or(path);
+        let mtime_of = |path: &Path| {
+            std::fs::symlink_metadata(path)
+                .ok()
+                .and_then(|metadata| metadata.modified().ok())
+                .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|duration| duration.as_secs() as i64)
+                .unwrap_or(0)
+        };
+        self.upsert_dirs(&[(parent.to_path_buf(), mtime_of(parent))])?;
+        let Some(dir_id) = self.dir_id_by_path(&parent.to_string_lossy()) else {
+            return Ok(());
+        };
+        let metadata = std::fs::symlink_metadata(path)?;
+        self.upsert_files(&[NewFile {
+            dir_id,
+            name: path.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default(),
+            kind: crate::kind_for_path(path),
+            size: metadata.len() as i64,
+            mtime: mtime_of(path),
+        }])
+    }
+
     pub fn total_files(&self) -> CoreResult<i64> {
-        Ok(self.conn.lock().unwrap().query_row("SELECT COUNT(*) FROM files", [], |row| row.get(0))?)
+        Ok(self.read_conn.lock().unwrap().query_row("SELECT COUNT(*) FROM files", [], |row| row.get(0))?)
     }
 
     /// Directory ids mapped by path, for parent resolution in the collector.
     pub fn dir_id_map(&self) -> CoreResult<std::collections::HashMap<String, i64>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.read_conn.lock().unwrap();
         let mut statement = conn.prepare("SELECT id, path FROM dirs")?;
         let map = statement
             .query_map([], |row| Ok((row.get::<_, String>(1)?, row.get::<_, i64>(0)?)))?
@@ -382,7 +489,6 @@ impl Catalog {
             return Ok(());
         }
         let conn = self.conn.lock().unwrap();
-        conn.prepare_cached("UPDATE files SET rag = ?1 WHERE id = ?2")?;
         let mut statement = conn.prepare("UPDATE files SET rag = ?1 WHERE id = ?2")?;
         let tx = conn.unchecked_transaction()?;
         for id in ids {
@@ -402,6 +508,7 @@ impl Catalog {
     }
 
     /// Lists children of a directory with filters and sorting applied in SQL.
+    /// Rows carry their full path so callers never re-query per row.
     pub fn children(
         &self,
         conn: &Connection,
@@ -410,7 +517,7 @@ impl Catalog {
         sort: SortKey,
         ascending: bool,
         limit: i64,
-    ) -> CoreResult<Vec<FileRow>> {
+    ) -> CoreResult<Vec<(FileRow, String)>> {
         let mut clauses: Vec<String> = Vec::new();
         let mut bind: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
         match dir_id {
@@ -449,8 +556,8 @@ impl Catalog {
         };
         let direction = if ascending { "ASC" } else { "DESC" };
         let sql = format!(
-            "SELECT f.id, f.dir_id, f.name, f.kind, f.size, f.mtime, f.duration, f.rag
-             FROM files f WHERE {} ORDER BY {} {}, f.name COLLATE NOCASE LIMIT {}",
+            "SELECT f.id, f.dir_id, f.name, f.kind, f.size, f.mtime, f.duration, f.rag, d.path || '/' || f.name
+             FROM files f JOIN dirs d ON d.id = f.dir_id WHERE {} ORDER BY {} {}, f.name COLLATE NOCASE LIMIT {}",
             clauses.join(" AND "),
             order_column,
             direction,
@@ -458,7 +565,9 @@ impl Catalog {
         );
         let mut statement = conn.prepare(&sql)?;
         let rows = statement
-            .query_map(params_from_iter(bind.iter().map(|b| b.as_ref())), file_row_from)?
+            .query_map(params_from_iter(bind.iter().map(|b| b.as_ref())), |row| {
+                Ok((file_row_from(row)?, row.get::<_, String>(8)?))
+            })?
             .collect::<Result<_, _>>()?;
         Ok(rows)
     }
@@ -522,9 +631,22 @@ impl Catalog {
         Ok(row)
     }
 
+    /// Full row for one absolute file path.
+    pub fn file_by_path(&self, conn: &Connection, path: &str) -> CoreResult<Option<(FileRow, String)>> {
+        let row = conn
+            .query_row(
+                "SELECT f.id, f.dir_id, f.name, f.kind, f.size, f.mtime, f.duration, f.rag, d.path || '/' || f.name
+                 FROM files f JOIN dirs d ON d.id = f.dir_id
+                 WHERE d.path || '/' || f.name = ?1",
+                params![path],
+                |row| Ok((file_row_from(row)?, row.get::<_, String>(8)?)),
+            )
+            .optional()?;
+        Ok(row)
+    }
+
     /// Fetches full file rows (with directory path) for a set of ids.
-    pub fn files_by_ids(&self, conn: &Connection, file_ids: &[i64]) -> CoreResult<Vec<(FileRow, String)>> {
-        if file_ids.is_empty() {
+    pub fn files_by_ids(&self, conn: &Connection, file_ids: &[i64]) -> CoreResult<Vec<(FileRow, String)>> {        if file_ids.is_empty() {
             return Ok(Vec::new());
         }
         let placeholders = vec!["?"; file_ids.len()].join(",");
@@ -559,7 +681,7 @@ impl Catalog {
     }
 
     /// Removes a file or a whole directory subtree; returns vector slots to free.
-    pub fn remove_path(&self, target: &str) -> CoreResult<Vec<i64>> {
+    pub fn remove_path(&self, target: &str) -> CoreResult<RemovedSlots> {
         let conn = self.conn.lock().unwrap();
         let tx = conn.unchecked_transaction()?;
         let freed_files: Vec<i64> = {
@@ -575,7 +697,7 @@ impl Catalog {
             }
             ids
         };
-        let slots = Self::delete_files_chunks(&tx, &freed_files)?;
+        let slots = Self::delete_file_derived(&tx, &freed_files)?;
         tx.execute(
             "DELETE FROM files WHERE id IN (SELECT f.id FROM files f JOIN dirs d ON d.id = f.dir_id
              WHERE d.path = ?1 OR d.path LIKE ?1 || '/%' OR (d.path = ?2 AND f.name = ?3))",
@@ -589,34 +711,48 @@ impl Catalog {
         Ok(slots)
     }
 
-    fn delete_files_chunks(tx: &Connection, file_ids: &[i64]) -> CoreResult<Vec<i64>> {
+    /// Drops a file row plus its derived rows after an on-disk change.
+    fn delete_file_derived(tx: &Connection, file_ids: &[i64]) -> CoreResult<RemovedSlots> {
+        let mut slots = RemovedSlots::default();
         if file_ids.is_empty() {
-            return Ok(Vec::new());
+            return Ok(slots);
         }
         let placeholders = vec!["?"; file_ids.len()].join(",");
-        let sql_files = format!("SELECT id FROM files WHERE id IN ({})", placeholders);
-        let mut slots = Vec::new();
         {
-            let mut statement = tx.prepare(&sql_files)?;
-            let ids: Vec<i64> = statement
+            let mut statement = tx.prepare(&format!(
+                "SELECT vec_slot FROM chunks WHERE file_id IN ({placeholders})"
+            ))?;
+            slots.chunk_slots = statement
                 .query_map(params_from_iter(file_ids), |row| row.get(0))?
                 .collect::<Result<_, _>>()?;
-            let mut chunk_slots = tx.prepare("SELECT vec_slot FROM chunks WHERE file_id = ?1")?;
-            for file_id in ids {
-                let file_slots: Vec<Option<i64>> = chunk_slots
-                    .query_map(params![file_id], |row| row.get(0))?
-                    .collect::<Result<_, _>>()?;
-                slots.extend(file_slots.into_iter().flatten());
-                tx.execute("DELETE FROM chunks WHERE file_id = ?1", params![file_id])?;
-            }
         }
+        {
+            let mut statement = tx.prepare(&format!(
+                "SELECT store, vec_slot FROM file_vectors WHERE file_id IN ({placeholders})"
+            ))?;
+            slots.derived_slots = statement
+                .query_map(params_from_iter(file_ids), |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+                })?
+                .collect::<Result<_, _>>()?;
+        }
+        let mut statement = tx.prepare(&format!(
+            "DELETE FROM chunks WHERE file_id IN ({placeholders})"
+        ))?;
+        statement.execute(params_from_iter(file_ids))?;
+        let mut statement = tx.prepare(&format!(
+            "DELETE FROM file_vectors WHERE file_id IN ({placeholders})"
+        ))?;
+        statement.execute(params_from_iter(file_ids))?;
         Ok(slots)
     }
 
-    /// Drops all chunks and vector-slot references (vector store rebuild).
+    /// Drops all chunks and derived-vector references (store rebuild).
     pub fn clear_chunks(&self) -> CoreResult<()> {
-        self.conn.lock().unwrap().execute("DELETE FROM chunks", [])?;
-        self.conn.lock().unwrap().execute("UPDATE files SET rag = 0, duration = NULL", [])?;
+        let conn = self.conn.lock().unwrap();
+        conn.execute("DELETE FROM chunks", [])?;
+        conn.execute("DELETE FROM file_vectors", [])?;
+        conn.execute("UPDATE files SET rag = 0, duration = NULL", [])?;
         Ok(())
     }
 
