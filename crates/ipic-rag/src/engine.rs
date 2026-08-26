@@ -913,9 +913,14 @@ fn spawn_extraction_workers(engine: &Arc<Engine>) {
     let worker_count = engine.compute.extract_workers;
     let whisper_permits = Arc::new((Mutex::new(0u32), Condvar::new()));
     let whisper_limit = engine.config.whisper_workers.max(1) as u32;
+    // Shared toggle so the pool alternates text/image claims globally: rows
+    // order by id and text files own the low ids, so a single mixed claim
+    // would still hand out nothing but text while text remains.
+    let claim_image_next = Arc::new(std::sync::atomic::AtomicBool::new(false));
     for worker_index in 0..worker_count {
         let worker_engine = Arc::clone(engine);
         let whisper_permits = Arc::clone(&whisper_permits);
+        let claim_image_next = Arc::clone(&claim_image_next);
         engine.spawn_tracked(&format!("ipic-extract-{worker_index}"), move || {
             let mut local_queue: Vec<IndexingJob> = Vec::new();
             loop {
@@ -923,17 +928,24 @@ fn spawn_extraction_workers(engine: &Arc<Engine>) {
                     return;
                 }
                 if local_queue.is_empty() {
-                    // One fast lane mixing text/PDF/images: strict priority
-                    // would starve 100k-image corpora behind 100k text files.
-                    // With vision configured but still loading, images wait.
-                    let vision_off_or_ready =
+                    let vision_participates =
                         worker_engine.vision.is_none() || worker_engine.vision_ready();
-                    let fast_kinds: &[FileKind] = if vision_off_or_ready {
-                        &[FileKind::Text, FileKind::Pdf, FileKind::Image]
+                    let wants_image = vision_participates
+                        && claim_image_next.fetch_xor(true, Ordering::AcqRel);
+                    let first: &[FileKind] = if wants_image {
+                        &[FileKind::Image]
                     } else {
                         &[FileKind::Text, FileKind::Pdf]
                     };
-                    let fast = claim_jobs(&worker_engine, fast_kinds)
+                    let second: &[FileKind] = if wants_image {
+                        &[FileKind::Text, FileKind::Pdf]
+                    } else if vision_participates {
+                        &[FileKind::Image]
+                    } else {
+                        &[FileKind::Audio, FileKind::Video]
+                    };
+                    let fast = claim_jobs(&worker_engine, first)
+                        .or_else(|| claim_jobs(&worker_engine, second))
                         .or_else(|| claim_jobs(&worker_engine, &[FileKind::Audio, FileKind::Video]));
                     match fast {
                         Some(jobs) => local_queue = jobs,
@@ -944,7 +956,7 @@ fn spawn_extraction_workers(engine: &Arc<Engine>) {
                     }
                 }
                 // Whisper-gated media reorders to the back: a long transcription
-                // must not hoard the locally claimed text jobs.
+                // must not hoard the locally claimed fast-lane jobs.
                 let job = match local_queue
                     .iter()
                     .position(|job| !matches!(job.kind, FileKind::Audio | FileKind::Video))

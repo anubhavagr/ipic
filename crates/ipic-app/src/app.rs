@@ -443,9 +443,11 @@ fn draw_search_box(ui: &mut Ui, app: &mut IpicApp) {
         app.browse.name_filter_active = app.search_edit.clone();
         app.browse.listing_stale = true;
     }
-    // egui's singleline TextEdit surrenders focus the moment it processes Enter,
-    // so has_focus() is already false on this frame — lost_focus() carries it.
-    let enter_pressed = response.lost_focus() && ui.input(|input| input.key_pressed(egui::Key::Enter));
+    // egui's singleline TextEdit surrenders focus the moment it processes Enter;
+    // depending on event ordering that reads as lost_focus() or lingering
+    // has_focus() on the Enter frame — accept either.
+    let enter_pressed = ui.input(|input| input.key_pressed(egui::Key::Enter))
+        && (response.lost_focus() || response.has_focus());
     if ui
         .button(crate::theme::icon(crate::theme::icons::SEARCH, 16.0))
         .on_hover_text("Search (Enter)")
@@ -568,9 +570,6 @@ pub fn draw_status_bar(ui: &mut Ui, app: &mut IpicApp) {
                     );
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    for (message, _) in app.notices.iter().rev() {
-                        ui.label(egui::RichText::new(message.clone()).color(crate::theme::TEXT_DIM).small());
-                    }
                     // Progress cluster: scan/index fraction, throughput, ETA.
                     let index_total = (status.done + status.failed + status.pending).max(1) as f32;
                     let index_fraction = (status.done + status.failed) as f32 / index_total;
@@ -599,6 +598,11 @@ pub fn draw_status_bar(ui: &mut Ui, app: &mut IpicApp) {
                     } else if app.searching {
                         ui.spinner();
                         ui.label(egui::RichText::new("searching").color(crate::theme::TEXT_DIM).small());
+                    }
+                    // Notices sit left of the progress cluster, never under it.
+                    ui.separator();
+                    for (message, _) in app.notices.iter().rev() {
+                        ui.label(egui::RichText::new(message.clone()).color(crate::theme::TEXT_DIM).small());
                     }
                 });
             });

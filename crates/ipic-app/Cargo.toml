@@ -25,4 +25,4 @@ rusqlite = "0.40.2"
 trash = "5.2.6"
 
 [dev-dependencies]
-egui_kittest = { version = "0.35.0", features = ["eframe"] }
+egui_kittest = { version = "0.35", features = ["eframe", "snapshot", "wgpu"] }
