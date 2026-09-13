@@ -13,6 +13,10 @@ use std::path::{Path, PathBuf};
 const MAGIC: u32 = 0x4950_5631; // "IPV1"
 const HEADER_BYTES: usize = 64;
 const MAX_DIM: usize = 1024;
+/// Compaction gates: never churn small stores, and only rewrite once the
+/// recycled pool holds a real share of the file.
+const COMPACT_MIN_FREE_SLOTS: usize = 1024;
+const COMPACT_FRAGMENTATION_SHARE: f64 = 0.25;
 
 #[derive(Debug, Clone, PartialEq)]
 struct StoreHeader {
@@ -88,6 +92,13 @@ impl VectorStore {
         self.header.count
     }
 
+    /// Vectors actually reachable by a scan: allocated slots minus the
+    /// tombstoned free pool. This is the number that must drop when files
+    /// are deleted (raw `count` only shrinks for trailing-slot truncation).
+    pub fn live_count(&self) -> u32 {
+        self.header.count.saturating_sub(self.free_slots.len() as u32)
+    }
+
     /// Appends quantized vectors, reusing freed slots; returns the slot per input.
     pub fn append_batch(&mut self, chunk_rowids: &[i64], vectors: &[Vec<f32>]) -> Result<Vec<i64>> {
         if vectors.is_empty() {
@@ -156,6 +167,55 @@ impl VectorStore {
         self.persist_free_slots()?;
         self.remap()?;
         Ok(())
+    }
+
+    /// True once the recycled pool is big enough that rewriting the store
+    /// beats holding the tombstoned space hostage (both a floor, so tiny
+    /// stores never churn, and a fragmentation share).
+    pub fn needs_compaction(&self) -> bool {
+        self.free_slots.len() >= COMPACT_MIN_FREE_SLOTS
+            && self.free_slots.len() as f64
+                >= self.header.count as f64 * COMPACT_FRAGMENTATION_SHARE
+    }
+
+    /// Rewrites live records contiguously and truncates the file, returning
+    /// the old→new slot moves in ascending order (every move targets a lower
+    /// slot) so the caller can fix up SQLite references. Slots are file
+    /// offsets, not rowids: the references live in chunks.vec_slot /
+    /// file_vectors.vec_slot and must be remapped with the catalog.
+    pub fn compact(&mut self) -> Result<Vec<(i64, i64)>> {
+        if self.free_slots.is_empty() {
+            return Ok(Vec::new());
+        }
+        let record = record_bytes(self.dim);
+        let freed: std::collections::HashSet<i64> = self.free_slots.iter().copied().collect();
+        let mut moves = Vec::new();
+        let mut buffer = [0u8; 8 + 4 + MAX_DIM];
+        let mut write = 0i64;
+        for slot in 0..self.header.count as i64 {
+            if freed.contains(&slot) {
+                continue;
+            }
+            if slot != write {
+                // Forward in-place move: the write offset never passes the
+                // read offset, so the source record is always intact.
+                self.file
+                    .seek(SeekFrom::Start((HEADER_BYTES + slot as usize * record) as u64))?;
+                self.file.read_exact(&mut buffer[..record])?;
+                self.file
+                    .seek(SeekFrom::Start((HEADER_BYTES + write as usize * record) as u64))?;
+                self.file.write_all(&buffer[..record])?;
+                moves.push((slot, write));
+            }
+            write += 1;
+        }
+        self.header.count = write as u32;
+        self.file.set_len((HEADER_BYTES + write as usize * record) as u64)?;
+        self.free_slots.clear();
+        self.persist_header()?;
+        self.persist_free_slots()?;
+        self.remap()?;
+        Ok(moves)
     }
 
     /// Parallel approximate-cosine top-k over all records.
@@ -315,10 +375,75 @@ mod tests {
         assert_eq!(hits[0].0, 43, "self-match should rank first");
         // Free a middle slot and re-append: reuse must not corrupt rowid lookup.
         store.free(&[slots[10]]).unwrap();
+        // A middle-slot free tombstones rather than truncates: raw count holds,
+        // live count drops — deletions must be observable, not silently recycled.
+        assert_eq!(store.count(), 100);
+        assert_eq!(store.live_count(), 99);
         let new_slots = store.append_batch(&[999], &[vectors[0].clone()]).unwrap();
         assert_eq!(new_slots[0], slots[10]);
+        assert_eq!(store.live_count(), 100);
         assert_eq!(store.top_k(&vectors[42], 200).iter().filter(|(r, _)| *r == 11).count(), 0);
         assert!(store.top_k(&vectors[0], 3).iter().any(|(r, _)| *r == 999));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn compaction_reclaims_space_and_keeps_lookups() {
+        let dir = std::env::temp_dir().join(format!("ipic-vec-compact-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let dimension = 64;
+        let (mut store, _) = VectorStore::open(&dir, dimension, "test-model").unwrap();
+        let vectors: Vec<Vec<f32>> = (0..100u32)
+            .map(|i| {
+                let mut vector: Vec<f32> = (0..dimension)
+                    .map(|j| {
+                        let mut hash = i
+                            .wrapping_mul(2654435761)
+                            .wrapping_add((j as u32).wrapping_mul(40503))
+                            .wrapping_add(0x9e37_7b9b);
+                        hash ^= hash >> 16;
+                        hash = hash.wrapping_mul(0x7feb_352d);
+                        hash ^= hash >> 15;
+                        hash = hash.wrapping_mul(0x846c_a68b);
+                        hash ^= hash >> 16;
+                        (hash % 1001) as f32 - 500.0
+                    })
+                    .collect();
+                let norm = vector.iter().map(|value| value * value).sum::<f32>().sqrt();
+                vector.iter_mut().for_each(|value| *value /= norm);
+                vector
+            })
+            .collect();
+        let rowids: Vec<i64> = (1..=100i64).collect();
+        let slots = store.append_batch(&rowids, &vectors).unwrap();
+        let size_before = std::fs::metadata(dir.join("vectors.bin")).unwrap().len();
+
+        // Free a middle band: all tombstoned, none eligible for truncation.
+        let victims: Vec<i64> = slots[20..50].to_vec();
+        store.free(&victims).unwrap();
+        assert_eq!(store.count(), 100, "middle frees tombstone, never truncate");
+
+        let moves = store.compact().unwrap();
+        assert_eq!(store.count(), 70);
+        assert_eq!(store.live_count(), 70);
+        let record = (8 + 4 + dimension) as u64;
+        let size_after = std::fs::metadata(dir.join("vectors.bin")).unwrap().len();
+        assert_eq!(size_after, size_before - 30 * record, "disk must shrink by exactly the freed band");
+        assert_eq!(moves.len(), 50, "the 50 live records above the band shift down; the 20 below stay");
+        assert!(
+            moves.windows(2).all(|pair| pair[0].0 < pair[1].0),
+            "moves arrive ascending for safe ordered remap"
+        );
+        assert!(moves.iter().all(|(old, new)| new < old), "every move targets a lower slot");
+
+        // Survivors stay findable by their rowids; victims are gone.
+        assert!(store.top_k(&vectors[0], 3).iter().any(|(r, _)| *r == 1));
+        assert!(store.top_k(&vectors[99], 3).iter().any(|(r, _)| *r == 100));
+        assert!(!store.top_k(&vectors[35], 200).iter().any(|(r, _)| *r == rowids[35]));
+
+        // Post-compaction appends extend the tail; nothing is recycled.
+        let new_slots = store.append_batch(&[9999], &[vectors[0].clone()]).unwrap();
+        assert_eq!(new_slots[0], 70);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

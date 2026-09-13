@@ -98,6 +98,8 @@ pub fn open_shard(
         image_store.free(&orphans)?;
         let orphans = catalog.drain_orphan_derived(STORE_AUDIO)?;
         audio_store.free(&orphans)?;
+        // Stores fragmented by past deletions reclaim their disk at open.
+        compact_stores(&catalog, &mut text_store, &mut image_store, &mut audio_store);
     }
 
     // Bounded feeds give the pipeline natural backpressure: extraction blocks
@@ -115,6 +117,56 @@ pub fn open_shard(
         chunk_sender,
         chunk_receiver: Mutex::new(Some(chunk_receiver)),
     })
+}
+
+/// Deleted files must not hold disk hostage: once a store's recycled pool
+/// crosses its fragmentation threshold, rewrite the live records contiguously
+/// (truncating the file) and fix up the SQLite slot references. The store
+/// lock stays held across the remap so no query or append can observe the
+/// half-moved window; catalog locks are never held across store locks
+/// elsewhere, so the nesting order is deadlock-free.
+pub fn compact_if_fragmented(shard: &Shard) {
+    {
+        let mut store = shard.text_store.lock().unwrap();
+        if store.needs_compaction() {
+            if let Ok(moves) = store.compact() {
+                shard.catalog.remap_chunk_slots(&moves).ok();
+            }
+        }
+    }
+    for (store_lock, store_name) in
+        [(&shard.image_store, STORE_IMAGE), (&shard.audio_store, STORE_AUDIO)]
+    {
+        let mut store = store_lock.lock().unwrap();
+        if store.needs_compaction() {
+            if let Ok(moves) = store.compact() {
+                shard.catalog.remap_derived_slots(store_name, &moves).ok();
+            }
+        }
+    }
+}
+
+/// Open-time variant over unlocked stores (pre-Shard construction).
+fn compact_stores(
+    catalog: &Catalog,
+    text_store: &mut VectorStore,
+    image_store: &mut VectorStore,
+    audio_store: &mut VectorStore,
+) {
+    if text_store.needs_compaction() {
+        if let Ok(moves) = text_store.compact() {
+            catalog.remap_chunk_slots(&moves).ok();
+        }
+    }
+    for (store, store_name) in
+        [(image_store, STORE_IMAGE), (audio_store, STORE_AUDIO)]
+    {
+        if store.needs_compaction() {
+            if let Ok(moves) = store.compact() {
+                catalog.remap_derived_slots(store_name, &moves).ok();
+            }
+        }
+    }
 }
 
 /// Moves the pre-sharding single-database layout into the first root's shard

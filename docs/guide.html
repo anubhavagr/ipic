@@ -497,7 +497,7 @@
     <tr><td>Embed writer</td><td>1</td><td>Batched ONNX inference (intra-op pool = cores/2, leaving headroom so ORT spin-waits never starve).</td></tr>
     <tr><td>Top-k scan</td><td>rayon (all cores)</td><td>Sharded integer dot products over the mmap.</td></tr>
   </table>
-  <p class="note">Model hash mismatches (embedder swap) trigger a wipe-and-reindex of derived data automatically; freed slots recycle; tombstones keep stale rowids out of results.</p>
+  <p class="note">Model hash mismatches (embedder swap) trigger a wipe-and-reindex of derived data automatically; freed slots recycle, and once the recycled pool passes a fragmentation threshold (1,024 slots and 25% of the file) the store is compacted: live records rewrite contiguously, the file truncates, and SQLite slot references remap in one pass — deleted files do not hold disk hostage.</p>
 </section>
 
 <!-- ======================= GUI ======================= -->

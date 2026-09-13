@@ -226,3 +226,68 @@ fn modify_reindexes_and_delete_frees_embeddings() {
     engine.shutdown();
     let _ = std::fs::remove_dir_all(&base);
 }
+
+#[test]
+fn delete_storm_compacts_vector_store() {
+    // Bulk deletion must give the disk back: once fragmentation crosses the
+    // store's threshold, vectors.bin is rewritten contiguously and shrinks.
+    let base = std::env::temp_dir().join(format!("ipic-compact-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    let corpus = base.join("corpus");
+    std::fs::create_dir_all(&corpus).unwrap();
+    for i in 0..1600 {
+        std::fs::write(
+            corpus.join(format!("note-{i:04}.txt")),
+            format!("journal entry number {i} with unique observations about topic {i}"),
+        )
+        .unwrap();
+    }
+
+    let (config, data_directory) = test_config(vec![corpus.clone()], base.join("data"));
+    let engine = Engine::launch_with_data_dir(config, data_directory.clone()).unwrap();
+    assert!(wait_until_idle(&engine, Duration::from_secs(120)), "engine must settle");
+    assert_eq!(engine.status().total_files, 1600);
+    let vectors_bin = std::fs::read_dir(data_directory.join("shards"))
+        .unwrap()
+        .find_map(|entry| {
+            let entry = entry.unwrap();
+            let candidate = entry.path().join("vectors.bin");
+            candidate.is_file().then_some(candidate)
+        })
+        .expect("shard vectors.bin must exist");
+    let size_before = std::fs::metadata(&vectors_bin).unwrap().len();
+    // The status cache refreshes on its own cadence; poll for the settled count.
+    let deadline = Instant::now() + Duration::from_secs(60);
+    while engine.status().vector_count != 1600 {
+        assert!(Instant::now() < deadline, "one chunk per file must embed");
+        std::thread::sleep(Duration::from_millis(250));
+    }
+
+    for i in 0..1200 {
+        std::fs::remove_file(corpus.join(format!("note-{i:04}.txt"))).unwrap();
+    }
+    let deadline = Instant::now() + Duration::from_secs(60);
+    loop {
+        while engine.events.try_recv().is_ok() {}
+        let status = engine.status();
+        if status.total_files == 400 && status.vector_count == 400 {
+            break;
+        }
+        assert!(Instant::now() < deadline, "deletions must drain: {status:?}");
+        std::thread::sleep(Duration::from_millis(250));
+    }
+    let size_after = std::fs::metadata(&vectors_bin).unwrap().len();
+    assert!(
+        size_after < size_before / 2,
+        "compaction must reclaim the deleted majority: {size_after} of {size_before}"
+    );
+
+    // Survivors still resolve through their remapped slots.
+    let outcome = engine.semantic_search("unique content 1599", 5).unwrap();
+    assert!(
+        outcome.hits.iter().any(|hit| hit.path.ends_with("note-1599.txt")),
+        "post-compaction search must find survivors"
+    );
+    engine.shutdown();
+    let _ = std::fs::remove_dir_all(&base);
+}

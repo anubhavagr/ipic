@@ -8,7 +8,7 @@ use crate::extract;
 use crate::fingerprint;
 use crate::progress::{scan_eta, IndexingEstimator};
 use crate::search::{self, MatchSources, SearchOutcome, RRF_CONSTANT};
-use crate::shard::{migrate_legacy_layout, open_shard, ChunkDelivery, Shard};
+use crate::shard::{compact_if_fragmented, migrate_legacy_layout, open_shard, ChunkDelivery, Shard};
 use crate::transcribe::{self, Transcriber};
 use crate::vision::VisionEmbedder;
 use anyhow::Result;
@@ -504,8 +504,8 @@ impl Engine {
             }
             counters.extend(shard.catalog.rag_kind_counters().unwrap_or_default());
             total_files += shard.catalog.total_files().unwrap_or(0);
-            vector_count += shard.text_store.lock().unwrap().count();
-            image_vector_count += shard.image_store.lock().unwrap().count();
+            vector_count += shard.text_store.lock().unwrap().live_count();
+            image_vector_count += shard.image_store.lock().unwrap().live_count();
         }
         let estimate = self.estimator.lock().unwrap().latest(&counters);
         *self.status_cache.lock().unwrap() = EngineStatus {
@@ -786,6 +786,8 @@ fn scan_shard(
         shard.audio_store.lock().unwrap().free(&orphan_audio).ok();
         let orphan_image = shard.catalog.drain_orphan_derived(STORE_IMAGE).unwrap_or_default();
         shard.image_store.lock().unwrap().free(&orphan_image).ok();
+        // Offline deletions reconciled by the scan are reclaimed immediately.
+        compact_if_fragmented(shard);
         shard.catalog.analyze().ok();
     }
     stats
@@ -804,6 +806,7 @@ impl Engine {
         if !audio_slots.is_empty() {
             shard.audio_store.lock().unwrap().free(&audio_slots).ok();
         }
+        compact_if_fragmented(shard);
     }
 }
 

@@ -338,6 +338,41 @@ impl Catalog {
         Ok(slots)
     }
 
+    /// Applies old→new slot moves to chunk references after a vector-store
+    /// compaction. Moves arrive ascending with every target strictly lower
+    /// than its source, so no update can shadow a later one.
+    pub fn remap_chunk_slots(&self, moves: &[(i64, i64)]) -> CoreResult<()> {
+        if moves.is_empty() {
+            return Ok(());
+        }
+        let conn = self.conn.lock().unwrap();
+        let tx = conn.unchecked_transaction()?;
+        let mut statement = tx.prepare("UPDATE chunks SET vec_slot = ?2 WHERE vec_slot = ?1")?;
+        for (old, new) in moves {
+            statement.execute(params![old, new])?;
+        }
+        drop(statement);
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Same remap for derived-store (image / audio fingerprint) references.
+    pub fn remap_derived_slots(&self, store: &str, moves: &[(i64, i64)]) -> CoreResult<()> {
+        if moves.is_empty() {
+            return Ok(());
+        }
+        let conn = self.conn.lock().unwrap();
+        let tx = conn.unchecked_transaction()?;
+        let mut statement =
+            tx.prepare("UPDATE file_vectors SET vec_slot = ?3 WHERE store = ?1 AND vec_slot = ?2")?;
+        for (old, new) in moves {
+            statement.execute(params![store, old, new])?;
+        }
+        drop(statement);
+        tx.commit()?;
+        Ok(())
+    }
+
     /// Rag-status counts: (pending, busy, done, failed).
     pub fn rag_counters(&self) -> CoreResult<(i64, i64, i64, i64)> {
         let conn = self.read_conn.lock().unwrap();
