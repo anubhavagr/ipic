@@ -1,2 +1,4 @@
 /target
 .mimosa/
+/dist
+.DS_Store
