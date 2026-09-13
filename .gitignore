@@ -2,3 +2,4 @@
 .mimosa/
 /dist
 .DS_Store
+.zcode/
