@@ -9,7 +9,13 @@ cd "$ROOT"
 
 BINARY="${1:-target/release/ipic}"
 ARCH="$(lipo -archs "$BINARY" | tr ' ' '-')"
-VERSION="$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -1)"
+# Tag is the source of truth in CI (GITHUB_REF_NAME=v0.1.1 -> 0.1.1);
+# local builds fall back to the workspace version.
+if [[ -n "${GITHUB_REF_NAME:-}" && "${GITHUB_REF_NAME}" == v* ]]; then
+  VERSION="${GITHUB_REF_NAME#v}"
+else
+  VERSION="$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -1)"
+fi
 DMG_NAME="ipic_${VERSION}_${ARCH}.dmg"
 
 if [[ ! -x "$BINARY" ]]; then

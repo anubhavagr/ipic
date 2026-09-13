@@ -3,7 +3,7 @@ resolver = "2"
 members = ["crates/ipic-core", "crates/ipic-rag", "crates/ipic-cli", "crates/ipic-app"]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 license = "MIT"
 
