@@ -410,7 +410,7 @@ fn settings_window_opens_lists_roots_and_closes() {
     harness.run_steps(2);
     enter_corpus_root(&mut harness);
 
-    click_topmost_label(&mut harness, "⚙");
+    click_topmost_label(&mut harness, theme::icons::SETTINGS);
     assert!(harness.state().show_settings, "gear button must open the settings window");
     assert!(harness.query_by_label("Indexed roots").is_some(), "roots section must render");
     let corpus_text = world.corpus.to_string_lossy().into_owned();
@@ -443,7 +443,7 @@ fn settings_add_root_accepts_valid_and_ignores_invalid_path() {
     harness.run_steps(2);
     enter_corpus_root(&mut harness);
 
-    click_topmost_label(&mut harness, "⚙");
+    click_topmost_label(&mut harness, theme::icons::SETTINGS);
 
     // A valid typed path must be added (the buffer empties on success).
     type_into_settings_root_edit(&mut harness, &extra_root.to_string_lossy());
@@ -469,7 +469,7 @@ fn settings_rescan_now_triggers_scan_and_closes() {
     harness.run_steps(2);
     enter_corpus_root(&mut harness);
 
-    click_topmost_label(&mut harness, "⚙");
+    click_topmost_label(&mut harness, theme::icons::SETTINGS);
     click_topmost_label(&mut harness, "Rescan now");
     assert!(!harness.state().show_settings, "Rescan now must close the settings window");
     wait_for_notice(&mut harness, "scan:");

@@ -1,4 +1,5 @@
-//! Right-hand details panel: preview (images, first indexed text), metadata, actions.
+//! Floating inspector as a spec sheet: identity header, action row, metadata
+//! key-values, index state, and indexed-content preview.
 
 use crate::app::IpicApp;
 use crate::browse::kind_glyph;
@@ -15,12 +16,25 @@ pub fn draw(ui: &mut Ui, app: &mut IpicApp) {
         return;
     };
     egui::ScrollArea::vertical().show(ui, |ui| {
-        ui.label(kind_glyph(file.kind).size(30.0));
-        ui.label(RichText::new(&file.name).size(17.0).strong().color(theme::TEXT_PRIMARY));
-        ui.label(RichText::new(&path).small().color(theme::TEXT_DIM).monospace());
+        // Identity header: glyph + name + path.
+        ui.horizontal_top(|ui| {
+            ui.label(kind_glyph(file.kind).size(30.0));
+            ui.vertical(|ui| {
+                ui.label(RichText::new(&file.name).size(15.0).strong().color(theme::TEXT_PRIMARY));
+                ui.label(RichText::new(&path).size(10.5).color(theme::TEXT_DIM).monospace());
+            });
+        });
         ui.add_space(8.0);
         ui.horizontal(|ui| {
-            if ui.button("Open").clicked() {
+            if ui
+                .add(
+                    egui::Button::new(
+                        RichText::new("Open").color(theme::ON_ACCENT).strong().small(),
+                    )
+                    .fill(theme::ACCENT_DEEP),
+                )
+                .clicked()
+            {
                 app.dispatch_open(std::path::Path::new(&path));
             }
             if ui.button("Reveal").clicked() {
@@ -30,7 +44,8 @@ pub fn draw(ui: &mut Ui, app: &mut IpicApp) {
                 crate::actions::copy_path_to_clipboard(&path);
             }
         });
-        ui.add_space(8.0);
+        ui.add_space(10.0);
+        section(ui, "metadata");
         metadata_row(ui, "Kind", file.kind.label());
         metadata_row(ui, "Size", &ipic_core::util::format_size(file.size));
         metadata_row(
@@ -41,8 +56,10 @@ pub fn draw(ui: &mut Ui, app: &mut IpicApp) {
         if let Some(duration) = file.duration_secs {
             metadata_row(ui, "Duration", &ipic_core::util::format_duration(duration));
         }
-        let status = match file.rag {
-            RagStatus::Done => ("indexed — searchable", theme::SUCCESS),
+        ui.add_space(8.0);
+        section(ui, "index");
+        let (status_text, status_color) = match file.rag {
+            RagStatus::Done => ("indexed, searchable", theme::SUCCESS),
             RagStatus::Busy => ("indexing…", theme::WARNING),
             RagStatus::Failed => ("index failed", theme::DANGER),
             RagStatus::Pending => (
@@ -50,7 +67,11 @@ pub fn draw(ui: &mut Ui, app: &mut IpicApp) {
                 theme::TEXT_DIM,
             ),
         };
-        metadata_row(ui, "RAG", status.0);
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 6.0;
+            theme::status_dot(ui, status_color, 7.0);
+            ui.label(RichText::new(status_text).small().monospace().color(status_color));
+        });
         ui.add_space(10.0);
         draw_preview(ui, app, &file, &path);
     });
@@ -66,6 +87,11 @@ fn metadata_row(ui: &mut Ui, label: &str, value: &str) {
             ui.label(RichText::new(value).small().color(theme::TEXT_PRIMARY).monospace());
         });
     });
+    // Spec-sheet hairline under every row.
+    let rect = ui.max_rect();
+    let y = ui.cursor().top();
+    ui.painter()
+        .hline(rect.left()..=rect.right(), y, egui::Stroke::new(1.0, theme::BORDER));
 }
 
 fn draw_preview(ui: &mut Ui, app: &mut IpicApp, file: &ipic_core::FileRow, path: &str) {
@@ -77,11 +103,14 @@ fn draw_preview(ui: &mut Ui, app: &mut IpicApp, file: &ipic_core::FileRow, path:
             ui.add(image);
         }
         FileKind::Text | FileKind::Pdf | FileKind::Audio | FileKind::Video => {
-            section(ui, if file.kind.is_rag() { "Indexed content" } else { "Preview" });
+            section(ui, if file.kind.is_rag() { "indexed content" } else { "preview" });
             let excerpt = first_chunk_text(app, file, path);
             match excerpt {
                 Some(text) => {
-                    let frame = egui::Frame::new().fill(theme::SURFACE_CARD).corner_radius(egui::CornerRadius::same(8)).inner_margin(egui::Margin::same(10));
+                    let frame = egui::Frame::new()
+                        .fill(theme::SURFACE_ELEVATED)
+                        .corner_radius(egui::CornerRadius::same(6))
+                        .inner_margin(egui::Margin::same(10));
                     frame.show(ui, |ui| {
                         ui.set_max_width(ui.available_width());
                         ui.label(
@@ -106,7 +135,8 @@ fn draw_preview(ui: &mut Ui, app: &mut IpicApp, file: &ipic_core::FileRow, path:
 }
 
 fn section(ui: &mut Ui, label: &str) {
-    ui.label(RichText::new(label.to_uppercase()).small().strong().color(theme::TEXT_DIM));
+    ui.label(theme::micro(label));
+    ui.add_space(2.0);
 }
 
 /// First indexed chunk of a file (its extract or transcript).

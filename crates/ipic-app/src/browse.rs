@@ -117,11 +117,17 @@ pub fn draw(ui: &mut Ui, app: &mut IpicApp) {
 }
 
 fn draw_empty_state(ui: &mut Ui, app: &mut IpicApp) {
-    ui.add_space(ui.available_height() * 0.3);
+    ui.add_space(ui.available_height() * 0.28);
     ui.vertical_centered(|ui| {
-        ui.label(RichText::new("nothing here").size(18.0).color(theme::TEXT_DIM));
+        ui.label(
+            egui::RichText::new(crate::theme::icons::FOLDER_OPEN)
+                .font(egui::FontId::new(34.0, egui::FontFamily::Name("material-icons".into())))
+                .color(theme::SURFACE_HOVER),
+        );
+        ui.add_space(8.0);
+        ui.label(RichText::new("nothing here").size(17.0).color(theme::TEXT_DIM));
         let hint = if app.browse.active_filter().is_empty() {
-            "this folder is empty — add files or create a new folder above"
+            "this folder is empty, add files or create a new folder above"
         } else {
             "no files match the current filters"
         };
@@ -202,11 +208,7 @@ fn draw_toolbar(ui: &mut Ui, app: &mut IpicApp) {
             }
         }
         if ui
-            .button(
-                egui::RichText::new(crate::theme::icons::REFRESH)
-                    .font(egui::FontId::new(15.0, egui::FontFamily::Name("material-icons".into())))
-                    .color(crate::theme::TEXT_PRIMARY),
-            )
+            .button(crate::theme::icon(crate::theme::icons::REFRESH, 16.0))
             .on_hover_text("Rescan roots now")
             .clicked()
         {
@@ -220,7 +222,12 @@ fn draw_toolbar(ui: &mut Ui, app: &mut IpicApp) {
             let chip = egui::Button::new(
                 RichText::new(label).color(if selected { theme::TEXT_PRIMARY } else { theme::TEXT_DIM }).strong(),
             )
-            .fill(if selected { theme::ACCENT_SOFT } else { theme::SURFACE_CARD });
+            .fill(if selected { theme::ACCENT_SOFT } else { theme::SURFACE_CARD })
+            .stroke(if selected {
+                egui::Stroke::new(1.0, theme::ACCENT)
+            } else {
+                egui::Stroke::new(1.0, theme::BORDER)
+            });
             if ui.add(chip).clicked() {
                 if selected {
                     app.browse.kind_filter.retain(|k| *k != kind);
@@ -236,19 +243,23 @@ fn draw_toolbar(ui: &mut Ui, app: &mut IpicApp) {
         }
     });
     ui.horizontal(|ui| {
-        if ui
-            .button(if app.browse.large_files_only { "Large ✓" } else { "Large" })
-            .on_hover_text("larger than 100 MB")
-            .clicked()
-        {
+        let toggle = |ui: &mut Ui, label: &str, active: bool, hover: &str| {
+            let chip = egui::Button::new(
+                RichText::new(label).color(if active { theme::TEXT_PRIMARY } else { theme::TEXT_DIM }).strong(),
+            )
+            .fill(if active { theme::ACCENT_SOFT } else { theme::SURFACE_CARD })
+            .stroke(if active {
+                egui::Stroke::new(1.0, theme::ACCENT)
+            } else {
+                egui::Stroke::new(1.0, theme::BORDER)
+            });
+            ui.add(chip).on_hover_text(hover).clicked()
+        };
+        if toggle(ui, "Large", app.browse.large_files_only, "larger than 100 MB") {
             app.browse.large_files_only = !app.browse.large_files_only;
             app.browse.listing_stale = true;
         }
-        if ui
-            .button(if app.browse.recent_files_only { "Recent ✓" } else { "Recent" })
-            .on_hover_text("modified in the last 30 days")
-            .clicked()
-        {
+        if toggle(ui, "Recent", app.browse.recent_files_only, "modified in the last 30 days") {
             app.browse.recent_files_only = !app.browse.recent_files_only;
             app.browse.listing_stale = true;
         }
@@ -333,7 +344,18 @@ fn draw_table(ui: &mut Ui, app: &mut IpicApp) {
                         };
                         row.col(|ui| {
                             ui.horizontal(|ui| {
-                                extend(clickable_label(ui, RichText::new("▸").color(theme::ACCENT)), &mut cell_response);
+                                extend(
+                                    clickable_label(
+                                        ui,
+                                        egui::RichText::new(crate::theme::icons::FOLDER)
+                                            .font(egui::FontId::new(
+                                                19.0,
+                                                egui::FontFamily::Name("material-icons".into()),
+                                            ))
+                                            .color(theme::ACCENT),
+                                    ),
+                                    &mut cell_response,
+                                );
                                 extend(
                                     clickable_label(
                                         ui,
@@ -350,7 +372,8 @@ fn draw_table(ui: &mut Ui, app: &mut IpicApp) {
                                             directory.file_count + directory.subdir_count
                                         ))
                                         .color(theme::TEXT_DIM)
-                                        .small(),
+                                        .small()
+                                        .monospace(),
                                     ),
                                     &mut cell_response,
                                 );
@@ -370,12 +393,18 @@ fn draw_table(ui: &mut Ui, app: &mut IpicApp) {
                             app.navigate_to(Some(directory.clone()));
                         }
                         interact.context_menu(|ui| {
+                            ui.set_min_width(200.0);
                             if ui.button("Open").clicked() {
                                 app.navigate_to(Some(directory.clone()));
                                 ui.close();
                             }
                             if ui.button("Reveal in Finder").clicked() {
                                 app.dispatch_reveal(Path::new(&directory.path));
+                                ui.close();
+                            }
+                            if ui.button("Copy path").clicked() {
+                                crate::actions::copy_path_to_clipboard(&directory.path);
+                                app.push_notice("path copied".into());
                                 ui.close();
                             }
                         });
@@ -451,9 +480,13 @@ fn sortable_header(ui: &mut Ui, app: &mut IpicApp, key: SortKey, label: &str) {
     } else {
         ""
     };
+    // Telemetry register: uppercase mono micro label; the active column is
+    // the only one that lights up.
     let text = RichText::new(format!("{label}{arrow}"))
         .color(if active { theme::TEXT_PRIMARY } else { theme::TEXT_DIM })
-        .strong();
+        .strong()
+        .small()
+        .monospace();
     if ui.add(egui::Button::new(text).fill(Color32::TRANSPARENT)).clicked() {
         if active {
             app.browse.sort_ascending = !app.browse.sort_ascending;
@@ -498,11 +531,7 @@ fn draw_file_row(
                 &mut cell_response,
             );
             extend(
-                clickable_label_stable(
-                    ui,
-                    RichText::new(&file.name).color(theme::TEXT_PRIMARY),
-                    row_id.with("name"),
-                ),
+                clickable_label_stable(ui, file_name_job(&file.name), row_id.with("name")),
                 &mut cell_response,
             );
         });
@@ -533,7 +562,8 @@ fn draw_file_row(
                 ui,
                 RichText::new(ipic_core::util::format_local_timestamp(file.mtime))
                     .color(theme::TEXT_DIM)
-                    .small(),
+                    .small()
+                    .monospace(),
                 row_id.with("modified"),
             ),
             &mut cell_response,
@@ -591,6 +621,10 @@ fn draw_file_row(
 }
 
 fn file_context_menu(ui: &mut Ui, app: &mut IpicApp, file: &FileRow, path: &str) {
+    // Grouped instrument menu: navigation / clipboard / file ops / destructive.
+    // Labels must stay exact (UI tests query them).
+    ui.set_min_width(200.0);
+    ui.set_min_height(4.0);
     if ui.button("Open").clicked() {
         app.dispatch_open(Path::new(path));
         ui.close();
@@ -604,6 +638,7 @@ fn file_context_menu(ui: &mut Ui, app: &mut IpicApp, file: &FileRow, path: &str)
         app.push_notice("path copied".into());
         ui.close();
     }
+    ui.separator();
     if ui.button("Duplicate").clicked() {
         match crate::actions::duplicate_file(Path::new(path)) {
             Ok(new_path) => {
@@ -628,8 +663,9 @@ fn file_context_menu(ui: &mut Ui, app: &mut IpicApp, file: &FileRow, path: &str)
         });
         ui.close();
     }
+    ui.separator();
     if ui
-        .button(egui::RichText::new("Move to Trash").color(theme::DANGER))
+        .button(egui::RichText::new("Move to Trash").color(theme::DANGER).strong())
         .clicked()
     {
         if crate::actions::move_to_trash(Path::new(path)).is_ok() {
@@ -643,16 +679,78 @@ fn file_context_menu(ui: &mut Ui, app: &mut IpicApp, file: &FileRow, path: &str)
     }
 }
 
+/// Filename as a two-tone layout job: stem in primary, extension dimmed.
+/// The concatenated text still equals the exact file name (UI tests query it).
+fn file_name_job(name: &str) -> egui::WidgetText {
+    let (stem, extension) = match name.rfind('.') {
+        Some(index) if index > 0 => (&name[..index], &name[index..]),
+        _ => (name, ""),
+    };
+    let mut job = egui::text::LayoutJob::default();
+    job.append(
+        stem,
+        0.0,
+        egui::TextFormat::simple(
+            egui::FontId::new(13.5, egui::FontFamily::Proportional),
+            theme::TEXT_PRIMARY,
+        ),
+    );
+    if !extension.is_empty() {
+        job.append(
+            extension,
+            0.0,
+            egui::TextFormat::simple(
+                egui::FontId::new(13.5, egui::FontFamily::Proportional),
+                theme::TEXT_DIM,
+            ),
+        );
+    }
+    egui::WidgetText::LayoutJob(job.into())
+}
+
+/// Kind glyph from the embedded Material Icons font (consistent rendering,
+/// no emoji fallback surprises across platforms).
 pub fn kind_glyph(kind: FileKind) -> RichText {
     let glyph = match kind {
-        FileKind::Text => "📝",
-        FileKind::Pdf => "📕",
-        FileKind::Audio => "🎧",
-        FileKind::Video => "🎬",
-        FileKind::Image => "🖼",
-        FileKind::Other => "📄",
+        FileKind::Text => theme::icons::DESCRIPTION,
+        FileKind::Pdf => theme::icons::PICTURE_AS_PDF,
+        FileKind::Audio => theme::icons::AUDIOTRACK,
+        FileKind::Video => theme::icons::MOVIE,
+        FileKind::Image => theme::icons::IMAGE,
+        FileKind::Other => theme::icons::INSERT_DRIVE_FILE,
     };
-    RichText::new(glyph)
+    egui::RichText::new(glyph)
+        .font(egui::FontId::new(
+            19.0,
+            egui::FontFamily::Name("material-icons".into()),
+        ))
+        .color(kind_glyph_color(kind))
+}
+
+/// Per-kind glyph tint. Pastel offsets from the saturated status hues so
+/// file-type color never reads as index state (the status dot owns those):
+/// slate for text, blush red for PDF, violet audio, rose video, mint image.
+pub fn kind_glyph_color(kind: FileKind) -> egui::Color32 {
+    match kind {
+        FileKind::Text => egui::Color32::from_rgb(170, 180, 199),
+        FileKind::Pdf => egui::Color32::from_rgb(250, 146, 146),
+        FileKind::Audio => egui::Color32::from_rgb(182, 155, 255),
+        FileKind::Video => egui::Color32::from_rgb(246, 140, 193),
+        FileKind::Image => egui::Color32::from_rgb(118, 222, 174),
+        FileKind::Other => theme::TEXT_DIM,
+    }
+}
+
+/// Kind glyph codepoint (for composition into layout jobs).
+pub fn kind_glyph_codepoint(kind: FileKind) -> &'static str {
+    match kind {
+        FileKind::Text => theme::icons::DESCRIPTION,
+        FileKind::Pdf => theme::icons::PICTURE_AS_PDF,
+        FileKind::Audio => theme::icons::AUDIOTRACK,
+        FileKind::Video => theme::icons::MOVIE,
+        FileKind::Image => theme::icons::IMAGE,
+        FileKind::Other => theme::icons::INSERT_DRIVE_FILE,
+    }
 }
 
 /// Index-status dot: green = indexed, red = failed, amber = working,

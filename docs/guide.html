@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>ipic — Architecture &amp; User Guide</title>
+<title>ipic - Architecture &amp; User Guide</title>
 <style>
   :root {
     --canvas: #fafafb;
@@ -93,7 +93,7 @@
 <header class="hero">
   <div class="eyebrow">Architecture &amp; User Guide</div>
   <h1>◆ ipic</h1>
-  <p class="lede">A Rust file manager with a built-in retrieval engine: hybrid search over file contents in 4–10 ms, whisper transcription of audio and video, acoustic matching between recordings. Every model runs in-process — after the first model fetch there is no network code in the hot path.</p>
+  <p class="lede">A Rust file manager with a built-in retrieval engine: hybrid search over file contents in 4-10 ms, whisper transcription of audio and video, acoustic matching between recordings. Every model runs in-process - after the first model fetch there is no network code in the hot path.</p>
 </header>
 
 <div class="layout">
@@ -149,19 +149,19 @@
       <line x1="210" y1="100" x2="210" y2="118" stroke="#6c727c" stroke-width="1.5" marker-end="url(#wArr)"/>
 
       <rect x="40" y="122" width="340" height="52" rx="9" fill="#ffffff" stroke="#e2e2e7"/>
-      <text x="210" y="143" text-anchor="middle" font-size="12.5" font-weight="700" fill="#181b20">Parallel walker — 1 thread / core</text>
+      <text x="210" y="143" text-anchor="middle" font-size="12.5" font-weight="700" fill="#181b20">Parallel walker - 1 thread / core</text>
       <text x="210" y="160" text-anchor="middle" font-size="10.5" fill="#6c727c">shared directory queue · symlinks never followed</text>
 
       <line x1="210" y1="174" x2="210" y2="192" stroke="#6c727c" stroke-width="1.5" marker-end="url(#wArr)"/>
 
       <rect x="40" y="196" width="340" height="52" rx="9" fill="#ffffff" stroke="#e2e2e7"/>
-      <text x="210" y="217" text-anchor="middle" font-size="12.5" font-weight="700" fill="#181b20">Collector — single writer</text>
+      <text x="210" y="217" text-anchor="middle" font-size="12.5" font-weight="700" fill="#181b20">Collector - single writer</text>
       <text x="210" y="234" text-anchor="middle" font-size="10.5" fill="#6c727c">batched upserts, 8k rows / transaction</text>
 
       <line x1="210" y1="248" x2="210" y2="266" stroke="#6c727c" stroke-width="1.5" marker-end="url(#wArr)"/>
 
       <rect x="40" y="270" width="340" height="88" rx="9" fill="#f3f3f5" stroke="#e2e2e7"/>
-      <text x="210" y="291" text-anchor="middle" font-size="12.5" font-weight="700" fill="#181b20">Catalog — SQLite WAL</text>
+      <text x="210" y="291" text-anchor="middle" font-size="12.5" font-weight="700" fill="#181b20">Catalog - SQLite WAL</text>
       <text x="210" y="308" text-anchor="middle" font-size="10.5" fill="#6c727c">files · dirs tree · chunks (FTS5) · audio_fingerprints</text>
       <text x="210" y="324" text-anchor="middle" font-size="10.5" fill="#6c727c">crash-safe states:</text>
       <text x="210" y="344" text-anchor="middle" font-size="10.5" font-weight="650" fill="#181b20">Pending → Busy → Done / Failed</text>
@@ -169,7 +169,7 @@
       <line x1="210" y1="358" x2="210" y2="376" stroke="#6c727c" stroke-width="1.5" marker-end="url(#wArr)"/>
 
       <rect x="40" y="380" width="340" height="50" rx="9" fill="#ffffff" stroke="#e2e2e7"/>
-      <text x="210" y="401" text-anchor="middle" font-size="12.5" font-weight="700" fill="#181b20">Claim — self-serve workers</text>
+      <text x="210" y="401" text-anchor="middle" font-size="12.5" font-weight="700" fill="#181b20">Claim - self-serve workers</text>
       <text x="210" y="418" text-anchor="middle" font-size="10.5" fill="#6c727c">atomic UPDATE … RETURNING · natural backpressure</text>
 
       <!-- split into two lanes -->
@@ -204,13 +204,13 @@
       <line x1="227" y1="596" x2="227" y2="612" stroke="#6c727c" stroke-width="1.5" marker-end="url(#wArr)"/>
 
       <rect x="40" y="616" width="260" height="50" rx="9" fill="#ffffff" stroke="#e2e2e7"/>
-      <text x="170" y="637" text-anchor="middle" font-size="12" font-weight="700" fill="#181b20">Chunker — 320-word windows</text>
+      <text x="170" y="637" text-anchor="middle" font-size="12" font-weight="700" fill="#181b20">Chunker - 320-word windows</text>
       <text x="170" y="654" text-anchor="middle" font-size="10.5" fill="#6c727c">24-word overlap keeps boundaries searchable</text>
 
       <line x1="170" y1="666" x2="170" y2="686" stroke="#6c727c" stroke-width="1.5" marker-end="url(#wArr)"/>
 
       <rect x="40" y="690" width="260" height="52" rx="9" fill="#ffffff" stroke="#e2e2e7"/>
-      <text x="170" y="711" text-anchor="middle" font-size="12" font-weight="700" fill="#181b20">Embed writer — batches of 64</text>
+      <text x="170" y="711" text-anchor="middle" font-size="12" font-weight="700" fill="#181b20">Embed writer - batches of 64</text>
       <text x="170" y="728" text-anchor="middle" font-size="10.5" fill="#6c727c">bge-small ONNX · i8 quantize on write</text>
 
       <!-- write drops into stores -->
@@ -226,7 +226,7 @@
 
       <!-- ============ RIGHT column, boxes x 455..745 ============ -->
       <rect x="455" y="48" width="290" height="52" rx="9" fill="#ffffff" stroke="#e2e2e7"/>
-      <text x="600" y="69" text-anchor="middle" font-size="12.5" font-weight="700" fill="#181b20">Query — GUI search box · CLI</text>
+      <text x="600" y="69" text-anchor="middle" font-size="12.5" font-weight="700" fill="#181b20">Query - GUI search box · CLI</text>
       <text x="600" y="86" text-anchor="middle" font-size="10.5" fill="#6c727c">typed text, or 🎙 recorded / file audio</text>
 
       <line x1="517" y1="100" x2="517" y2="118" stroke="#2652f8" stroke-width="1.5" marker-end="url(#bArr)"/>
@@ -248,7 +248,7 @@
 
       <!-- lane bus -->
       <rect x="455" y="218" width="290" height="170" rx="9" fill="#ffffff" stroke="#e2e2e7"/>
-      <text x="600" y="240" text-anchor="middle" font-size="11.5" font-weight="700" fill="#181b20">retrieval lanes — parallel over shared stores</text>
+      <text x="600" y="240" text-anchor="middle" font-size="11.5" font-weight="700" fill="#181b20">retrieval lanes - parallel over shared stores</text>
 
       <rect x="467" y="252" width="128" height="56" rx="8" fill="#e2e9ff"/>
       <text x="531" y="273" text-anchor="middle" font-size="11" font-weight="700" fill="#2652f8">semantic · w 1.0</text>
@@ -277,10 +277,10 @@
 
       <rect x="455" y="524" width="290" height="56" rx="9" fill="#ffffff" stroke="#e2e2e7"/>
       <text x="600" y="545" text-anchor="middle" font-size="12" font-weight="700" fill="#181b20">Ranked results</text>
-      <text x="600" y="562" text-anchor="middle" font-size="10.5" fill="#6c727c">snippet · lane badges · 4–10 ms typical</text>
+      <text x="600" y="562" text-anchor="middle" font-size="10.5" fill="#6c727c">snippet · lane badges · 4-10 ms typical</text>
 
       <path d="M 600 580 L 600 610 L 420 610 L 420 764" fill="none" stroke="#2652f8" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#bArr)"/>
-      <text x="428" y="788" font-size="9.5" fill="#2652f8">lanes read all stores — mmap · zero-copy</text>
+      <text x="428" y="788" font-size="9.5" fill="#2652f8">lanes read all stores - mmap · zero-copy</text>
 
       <!-- ============ shared stores row ============ -->
       <rect x="40" y="806" width="130" height="52" rx="9" fill="#17191d"/>
@@ -297,7 +297,7 @@
 
       <rect x="470" y="806" width="270" height="52" rx="9" fill="#ffffff" stroke="#e2e2e7"/>
       <text x="605" y="827" text-anchor="middle" font-size="10.5" font-weight="700" fill="#181b20">~/.ipic/models</text>
-      <text x="605" y="843" text-anchor="middle" font-size="9.5" fill="#6c727c">bge · whisper — local, cached, offline after first fetch</text>
+      <text x="605" y="843" text-anchor="middle" font-size="9.5" fill="#6c727c">bge · whisper - local, cached, offline after first fetch</text>
 
       <!-- legend -->
       <line x1="40" y1="884" x2="64" y2="884" stroke="#6c727c" stroke-width="1.5"/><text x="70" y="888" font-size="10" fill="#6c727c">write</text>
@@ -307,7 +307,7 @@
     </svg>
     <figcaption>Left: files flow down the indexing path into the shared stores. Right: queries fan out over four lanes and fuse into one ranked list. Solid gray/blue = writes, dashed blue = reads, green = acoustic signals, amber dashed = filesystem watcher.</figcaption>
   </figure>
-  <p>Two flows, one set of stores. <strong>Left, the write path:</strong> roots are walked with one thread per core (~2.5k files/s discovery), upserted into SQLite in 1024-row batches (small enough that worker claims never starve), then claimed in batches — text extracts to UTF-8, PDFs go through a panic-guard, images decode to CLIP thumbnails, audio decodes to 16 kHz mono PCM that feeds both whisper and the FFT fingerprinter, everything ends as ~320-word chunks embedded to i8 vectors. <strong>Right, the read path:</strong> a query becomes four ranked lists — cosine over quantized vectors, BM25, filename match, acoustic match — merged by reciprocal-rank fusion. The amber loop feeds filesystem events back into incremental rescans.</p>
+  <p>Two flows, one set of stores. <strong>Left, the write path:</strong> roots are walked with one thread per core (~2.5k files/s discovery), upserted into SQLite in 1024-row batches (small enough that worker claims never starve), then claimed in batches - text extracts to UTF-8, PDFs go through a panic-guard, images decode to CLIP thumbnails, audio decodes to 16 kHz mono PCM that feeds both whisper and the FFT fingerprinter, everything ends as ~320-word chunks embedded to i8 vectors. <strong>Right, the read path:</strong> a query becomes four ranked lists - cosine over quantized vectors, BM25, filename match, acoustic match - merged by reciprocal-rank fusion. The amber loop feeds filesystem events back into incremental rescans.</p>
 </section>
 
 <!-- ======================= OVERVIEW ======================= -->
@@ -321,13 +321,13 @@
     <span class="badge"><b>all cores</b> during indexing</span>
     <span class="badge"><b>per-root shards</b> decentralized index</span>
   </div>
-  <p>ipic indexes a directory tree into a queryable store and manages it: scan, catalog, navigate, sort, filter, batch-operate — and search by meaning rather than filename. One process, three threads of work: an egui front-end, a worker pool that turns files into vectors and transcripts, and a watcher that reconciles the catalog with disk events.</p>
-  <p>Three model families drive understanding, all cached under <code>~/.ipic/models/</code> after a one-time fetch: <strong>bge-small-en-v1.5</strong> (384-dim text embeddings, ONNX Runtime), <strong>whisper small.en q5_1</strong> (speech-to-text, beam-5 decoding, ~35× realtime on Accelerate BLAS) and <strong>CLIP ViT-B/32</strong> (both towers, ~150 MB). The only network call in the codebase is that first model download — queries, filenames, transcripts and embeddings never leave the process.</p>
-  <p><strong>v2 additions.</strong> Image pixels and typed queries embed into the same <strong>CLIP ViT-B/32</strong> 512-dim space, so “sunset over water” matches photographs by content. The single database is now a <strong>decentralized per-root shard set</strong> (each root owns its SQLite catalog plus text/vision/audio vector stores, scanned and written in parallel). A persistent watcher indexes new files, re-embeds modified ones and frees the vectors of deleted ones in the background while the UI stays responsive; the footer reports live progress with per-kind throughput and ETA (an hour of audio is not a second of JPEG). A <code>[compute]</code> config section budgets threads per stage — scan, extraction, ONNX inference, search — with saturating defaults: idle cores are waste.</p>
+  <p>ipic indexes a directory tree into a queryable store and manages it: scan, catalog, navigate, sort, filter, batch-operate - and search by meaning rather than filename. One process, three threads of work: an egui front-end, a worker pool that turns files into vectors and transcripts, and a watcher that reconciles the catalog with disk events.</p>
+  <p>Three model families drive understanding, all cached under <code>~/.ipic/models/</code> after a one-time fetch: <strong>bge-small-en-v1.5</strong> (384-dim text embeddings, ONNX Runtime), <strong>whisper small.en q5_1</strong> (speech-to-text, beam-5 decoding, ~35× realtime on Accelerate BLAS) and <strong>CLIP ViT-B/32</strong> (both towers, ~150 MB). The only network call in the codebase is that first model download - queries, filenames, transcripts and embeddings never leave the process.</p>
+  <p><strong>v2 additions.</strong> Image pixels and typed queries embed into the same <strong>CLIP ViT-B/32</strong> 512-dim space, so “sunset over water” matches photographs by content. The single database is now a <strong>decentralized per-root shard set</strong> (each root owns its SQLite catalog plus text/vision/audio vector stores, scanned and written in parallel). A persistent watcher indexes new files, re-embeds modified ones and frees the vectors of deleted ones in the background while the UI stays responsive; the footer reports live progress with per-kind throughput and ETA (an hour of audio is not a second of JPEG). A <code>[compute]</code> config section budgets threads per stage - scan, extraction, ONNX inference, search - with saturating defaults: idle cores are waste.</p>
   <div class="grid2">
     <div class="stat"><div class="v">~30 ms</div><div class="l">typical search latency with models resident (query embedding dominates)</div></div>
     <div class="stat"><div class="v">~2.5k files/s</div><div class="l">parallel scan discovery (350k-file home directory, 8 shards)</div></div>
-    <div class="stat"><div class="v">1 byte</div><div class="l">per vector component — i8-quantized, page-cache-resident index</div></div>
+    <div class="stat"><div class="v">1 byte</div><div class="l">per vector component - i8-quantized, page-cache-resident index</div></div>
     <div class="stat"><div class="v">35×</div><div class="l">realtime transcription (small.en, beam-5, Accelerate BLAS)</div></div>
   </div>
 </section>
@@ -339,7 +339,7 @@
     <tr><th>Area</th><th>What you get</th></tr>
     <tr><td><strong>File management</strong></td><td>Back/forward/up navigation, breadcrumbs, sidebar tree, virtualized table, sort by name / kind / size / modified / duration, kind &amp; size &amp; recency filters, ⌘-click / ⇧-click / ⌘A multi-select, open · reveal · rename · duplicate · new folder · move-to-trash (bulk-aware), status dot per row (green indexed / red failed / amber working / faint queued).</td></tr>
     <tr><td><strong>Unified search</strong></td><td>One box, two behaviors: typing live-filters by filename; <span class="kbd">Enter</span> runs the full four-lane retrieval; <span class="kbd">Esc</span> restores the exact folder you were browsing before the search.</td></tr>
-    <tr><td><strong>Spoken queries</strong></td><td>Record from the mic; whisper transcribes locally and the transcript drives the text lanes <em>while the raw waveform matches acoustically against every indexed recording</em> — both signal groups fused into one ranked list.</td></tr>
+    <tr><td><strong>Spoken queries</strong></td><td>Record from the mic; whisper transcribes locally and the transcript drives the text lanes <em>while the raw waveform matches acoustically against every indexed recording</em> - both signal groups fused into one ranked list.</td></tr>
     <tr><td><strong>Media understanding</strong></td><td>Speech inside audio/video is transcribed at index time (lectures, podcasts, talks become full-text searchable). Images are searchable through filename + folder context.</td></tr>
     <tr><td><strong>Live index</strong></td><td>Filesystem watcher keeps the catalog current; interrupted indexing resumes on next launch; per-file RAG status visible in the UI.</td></tr>
   </table>
@@ -352,7 +352,7 @@
   <ul>
     <li>Rust 1.94+ and <code>cmake</code> (whisper.cpp builds automatically)</li>
     <li>macOS on Apple Silicon is the primary target; Linux works with the same code paths</li>
-    <li><code>ffmpeg</code> optional — broadens A/V container coverage; wav/mp3/flac/ogg/m4a decode fine without it</li>
+    <li><code>ffmpeg</code> optional - broadens A/V container coverage; wav/mp3/flac/ogg/m4a decode fine without it</li>
     <li>~250 MB free disk for the two local models (downloaded once, then fully offline)</li>
   </ul>
   <h3>Build &amp; run</h3>
@@ -375,12 +375,12 @@
 <!-- ======================= ARCHITECTURE ======================= -->
 <section id="architecture">
   <h2><span class="num">04</span>Architecture</h2>
-  <p>Four crates in one Cargo workspace, layered strictly downward. The GUI is a thin shell over the engine — every screen reads through catalog connections and engine events, never the filesystem directly, which is what makes the UI swappable (a TUI or web front-end could drive the same engine).</p>
+  <p>Four crates in one Cargo workspace, layered strictly downward. The GUI is a thin shell over the engine - every screen reads through catalog connections and engine events, never the filesystem directly, which is what makes the UI swappable (a TUI or web front-end could drive the same engine).</p>
 
 <p>The diagram at the top of the page shows the full flow; the sections below expand each stage.</p>
 
   <h3>Layering in one line</h3>
-  <p><code>ipic-app / ipic-cli</code> → <code>ipic-rag</code> (Engine) → <code>ipic-core</code> (catalog, walker, watcher). The GUI talks to the engine over channels and catalog reader connections only — never the filesystem — which is what keeps the front-end swappable.</p>
+  <p><code>ipic-app / ipic-cli</code> → <code>ipic-rag</code> (Engine) → <code>ipic-core</code> (catalog, walker, watcher). The GUI talks to the engine over channels and catalog reader connections only - never the filesystem - which is what keeps the front-end swappable.</p>
 </section>
 
 <section id="crates">
@@ -395,7 +395,7 @@
     <tr>
       <td><code>ipic-rag</code></td>
       <td>Understanding: embeddings, ASR, fingerprints, retrieval, orchestration.</td>
-      <td>Neural embedder (bge-small-en-v1.5 via ONNX Runtime) with a deterministic feature-hashing fallback for offline first-runs; whisper.cpp transcriber (Metal-capable, CPU/Accelerate default) sharing one context across a state pool; pure-Rust acoustic fingerprinting (rustfft); two mmap'd i8-quantized vector stores; hybrid search with weighted reciprocal-rank fusion; the <strong>Engine</strong> — worker threads, event bus, crash-safe Pending/Busy/Done/Failed job states.</td>
+      <td>Neural embedder (bge-small-en-v1.5 via ONNX Runtime) with a deterministic feature-hashing fallback for offline first-runs; whisper.cpp transcriber (Metal-capable, CPU/Accelerate default) sharing one context across a state pool; pure-Rust acoustic fingerprinting (rustfft); two mmap'd i8-quantized vector stores; hybrid search with weighted reciprocal-rank fusion; the <strong>Engine</strong> - worker threads, event bus, crash-safe Pending/Busy/Done/Failed job states.</td>
     </tr>
     <tr>
       <td><code>ipic-app</code></td>
@@ -412,14 +412,14 @@
 
 <section id="pipeline">
   <h2><span class="num">06</span>Indexing pipeline</h2>
-  <p>Indexing runs on background threads and survives crashes by construction: each file's progress is a row state — <span class="pill blue">Pending</span> → <span class="pill amber">Busy</span> → <span class="pill green">Done</span> / <span class="pill" style="background:#fbe3e3;color:var(--danger)">Failed</span> — persisted in the same transaction as its data. Kill the process mid-index and the next launch resets Busy rows to Pending and continues; nothing re-indexes from zero.</p>
+  <p>Indexing runs on background threads and survives crashes by construction: each file's progress is a row state - <span class="pill blue">Pending</span> → <span class="pill amber">Busy</span> → <span class="pill green">Done</span> / <span class="pill" style="background:#fbe3e3;color:var(--danger)">Failed</span> - persisted in the same transaction as its data. Kill the process mid-index and the next launch resets Busy rows to Pending and continues; nothing re-indexes from zero.</p>
   <ol>
-    <li><strong>Scan</strong> — a shared directory queue feeds one worker per CPU core; discovered entries stream over a channel to a single-writer collector that batches upserts into SQLite (8k rows/tx). Each directory is registered on arrival so child files always resolve their parent.</li>
-    <li><strong>Claim</strong> — extraction workers self-serve jobs from the catalog with an atomic <code>UPDATE … RETURNING</code> claim (natural backpressure). Two lanes: a fast lane for text/PDF/images, a slow lane for audio/video gated by a semaphore sized to the whisper state pool.</li>
-    <li><strong>Extract</strong> — text files are read (UTF-8 validated, size-capped); PDFs go through a panic-guarded extractor (malformed PDFs are contained, marked Failed); images produce a filename + folder-context pseudo-document; audio/video are decoded to 16 kHz mono PCM (ffmpeg pipe when available, else pure-Rust symphonia).</li>
-    <li><strong>Transcribe</strong> (media lane) — whisper with beam-search decoding; duration is recorded; a 128-dim acoustic fingerprint is computed from the same PCM and stored in the fingerprint vector store.</li>
-    <li><strong>Chunk</strong> — ~320-word windows with a 24-word overlap so boundary context stays searchable.</li>
-    <li><strong>Embed</strong> — a dedicated writer thread batches up to 64 chunks through the ONNX embedder (intra-op pool sized to leave headroom for the other pools) and persists FTS5 rows + quantized vectors transactionally, then flips files to Done.</li>
+    <li><strong>Scan</strong> - a shared directory queue feeds one worker per CPU core; discovered entries stream over a channel to a single-writer collector that batches upserts into SQLite (8k rows/tx). Each directory is registered on arrival so child files always resolve their parent.</li>
+    <li><strong>Claim</strong> - extraction workers self-serve jobs from the catalog with an atomic <code>UPDATE … RETURNING</code> claim (natural backpressure). Two lanes: a fast lane for text/PDF/images, a slow lane for audio/video gated by a semaphore sized to the whisper state pool.</li>
+    <li><strong>Extract</strong> - text files are read (UTF-8 validated, size-capped); PDFs go through a panic-guarded extractor (malformed PDFs are contained, marked Failed); images produce a filename + folder-context pseudo-document; audio/video are decoded to 16 kHz mono PCM (ffmpeg pipe when available, else pure-Rust symphonia).</li>
+    <li><strong>Transcribe</strong> (media lane) - whisper with beam-search decoding; duration is recorded; a 128-dim acoustic fingerprint is computed from the same PCM and stored in the fingerprint vector store.</li>
+    <li><strong>Chunk</strong> - ~320-word windows with a 24-word overlap so boundary context stays searchable.</li>
+    <li><strong>Embed</strong> - a dedicated writer thread batches up to 64 chunks through the ONNX embedder (intra-op pool sized to leave headroom for the other pools) and persists FTS5 rows + quantized vectors transactionally, then flips files to Done.</li>
   </ol>
   <p class="note">After the scan, an FSEvents/inotify watcher keeps the catalog honest: a changed size or mtime resets that file to Pending for re-extraction, deletions purge the row and recycle both vector slots (text and fingerprint), and modified subtrees get an incremental re-walk.</p>
 </section>
@@ -431,7 +431,7 @@
     <tr><th>Artifact</th><th>Format</th><th>Contents</th></tr>
     <tr><td><code>catalog.db</code></td><td>SQLite, WAL, 64 MB page cache, mmap'd reads</td><td><code>dirs</code> tree, <code>files</code> (kind, size, mtime, duration, RAG status), <code>chunks</code> FTS5 table (porter + unicode61 tokenizer), <code>audio_fingerprints</code> slot map.</td></tr>
     <tr><td><code>vectors.bin</code></td><td>Custom flat file, memory-mapped</td><td>64-byte header (magic, dim, model hash, count) + fixed 396-byte records: <code>chunk_rowid u64 · scale f32 · 384 × i8</code>. Symmetric quantization; slots are recycled through a free-list; tombstones mark freed middles.</td></tr>
-    <tr><td><code>audio-fingerprints/vectors.bin</code></td><td>Same container, 128-dim</td><td>One record per media file keyed by file id — the acoustic lane's search space.</td></tr>
+    <tr><td><code>audio-fingerprints/vectors.bin</code></td><td>Same container, 128-dim</td><td>One record per media file keyed by file id - the acoustic lane's search space.</td></tr>
     <tr><td><code>models/</code></td><td>ONNX + ggml</td><td>bge-small-en-v1.5 (384-dim) and whisper small.en q5_1, both cached locally after one download.</td></tr>
     <tr><td><code>config.toml</code></td><td>TOML</td><td>Roots, skip-list, whisper model + workers + GPU toggle, embedder choice, batch sizes. Scoped per data directory, so test engines never touch your real config.</td></tr>
   </table>
@@ -441,7 +441,7 @@
 
 <section id="search">
   <h2><span class="num">08</span>Search internals</h2>
-  <p>A query runs four retrievers concurrently and merges them with weighted reciprocal-rank fusion — no re-ranking pass, no cross-encoder, latency stays in single-digit milliseconds:</p>
+  <p>A query runs four retrievers concurrently and merges them with weighted reciprocal-rank fusion - no re-ranking pass, no cross-encoder, latency stays in single-digit milliseconds:</p>
   <figure class="diagram">
     <svg viewBox="0 0 760 210" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto" font-family="Inter, sans-serif">
       <defs><marker id="arr2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#6c727c"/></marker></defs>
@@ -457,7 +457,7 @@
       <rect x="20" y="84" width="0" height="0"/>
       <rect x="300" y="84" width="180" height="52" rx="8" fill="#e3f3ec"/>
       <text x="390" y="106" text-anchor="middle" font-size="12" font-weight="700" fill="#168a5a">acoustic lane · w 0.9</text>
-      <text x="390" y="122" text-anchor="middle" font-size="10.5" fill="#6c727c">audio queries only — fingerprint match</text>
+      <text x="390" y="122" text-anchor="middle" font-size="10.5" fill="#6c727c">audio queries only - fingerprint match</text>
       <rect x="540" y="66" width="200" height="88" rx="10" fill="#ffffff" stroke="#e2e2e7"/>
       <text x="640" y="98" text-anchor="middle" font-size="12.5" font-weight="700" fill="#181b20">RRF fusion</text>
       <text x="640" y="117" text-anchor="middle" font-size="10.5" fill="#6c727c">score = Σ wᵢ / (60 + rankᵢ)</text>
@@ -471,7 +471,7 @@
   </figure>
   <ul>
     <li><strong>Query path:</strong> embed query → parallel integer top-k over the mmap'd store (4096-record shards, partial top-k per shard, merge) → hydrate chunk rows → aggregate per file.</li>
-    <li><strong>Safety:</strong> FTS5 MATCH expressions are built from quoted words only — no operator injection; LIKE patterns escape wildcards.</li>
+    <li><strong>Safety:</strong> FTS5 MATCH expressions are built from quoted words only - no operator injection; LIKE patterns escape wildcards.</li>
     <li><strong>Spoken queries</strong> add the acoustic lane and display the interpreted transcript (“🎙 heard: …”).</li>
   </ul>
 </section>
@@ -481,8 +481,8 @@
   <p>Text embeddings can't hum. For direct sound-to-sound similarity, every audio/video file gets a <strong>128-dimensional acoustic fingerprint</strong> at index time, computed from the same decoded PCM the transcriber sees:</p>
   <ol>
     <li>Hann-windowed 1024-sample frames, 512 hop → FFT (rustfft, pure Rust).</li>
-    <li>Power spectrum folded into 64 log-spaced bands (80 Hz – 7.6 kHz), log-compressed.</li>
-    <li>Two statistic halves per band — <strong>spectral shape</strong> (mean log-energy) and <strong>spectral flux</strong> (frame-to-frame change RMS) — each unit-normalized separately so timbre and dynamics weigh equally.</li>
+    <li>Power spectrum folded into 64 log-spaced bands (80 Hz - 7.6 kHz), log-compressed.</li>
+    <li>Two statistic halves per band - <strong>spectral shape</strong> (mean log-energy) and <strong>spectral flux</strong> (frame-to-frame change RMS) - each unit-normalized separately so timbre and dynamics weigh equally.</li>
   </ol>
   <p>Matching is cosine over the two halves, so a perfect self-match scores 2.0 and the score splits evenly between timbre and dynamics. In practice: the same recording re-encoded, trimmed, or volume-adjusted stays above ~1.7; different material lands well under 1.6. The regression tests pin these bounds on seeded broadband versus low-passed noise.</p>
 </section>
@@ -503,14 +503,15 @@
 <!-- ======================= GUI ======================= -->
 <section id="gui">
   <h2><span class="num">11</span>The GUI</h2>
-  <p>One process, GPU-rendered via egui, ~60 MB resident above the models. The visual system is deliberately constrained: near-white canvas, 1px borders, a single accent color reserved for selection and focus, Inter for text, Material Icons for controls. Tables are virtualized — 100k-row folders scroll at frame rate because only visible rows are laid out.</p>
+  <p>One process, GPU-rendered via egui, ~60 MB resident above the models. The visual system ("Lumen") is built as a <strong>perception instrument</strong>: graphite dark canvas, 1px hairline borders, monospace numerics for every measurable value, uppercase micro-labels for section chrome, and a single lumen-cyan accent reserved for selection, focus, and the brand mark; green / amber / red stay reserved for machine state, so color always means something: saturated traffic-light hues and the status dot belong to the index, while file-kind icons use pastel offsets of their own (blush PDF, mint image, violet audio, rose video, slate text) so type never reads as state. Inter for prose, JetBrains Mono for numbers, paths, and readouts, Material Icons for every glyph (no emoji). Tables are virtualized - 100k-row folders scroll at frame rate because only visible rows are laid out.</p>
   <ul>
-    <li><strong>Top bar</strong> — back / forward / up, clickable breadcrumbs, and the unified search box with mic button and ⌘F focus.</li>
-    <li><strong>Sidebar</strong> — locations (roots), kind filters with live counts, and a lazy-expanding directory tree.</li>
-    <li><strong>Toolbar</strong> — new folder, rescan, kind chips, Large (&gt;100 MB) / Recent (30 days) toggles, sort key + direction.</li>
-    <li><strong>Table</strong> — virtualized for huge folders; status dot before each icon; multi-select with ⌘/⇧/⌘A; double-click opens; right-click menu performs bulk open / reveal / copy paths / duplicate / trash.</li>
-    <li><strong>Floating inspector</strong> — appears only while a row is selected: metadata, indexed-content preview, image preview, quick actions. Deliberately a floating window: an appearing side panel re-flows the table and used to close open context menus.</li>
-    <li><strong>Footer</strong> — index health (files, vectors, cores) on the left; progress cluster (fraction bar + spinner) on the right.</li>
+    <li><strong>Command bar</strong> - ◆ mark, segmented back / forward / up group, path-style breadcrumbs, a live engine status chip (READY / INDEXING / SCANNING with its state dot), and the unified search field: a sunken mono command well with mic button, search action, and ⌘F focus.</li>
+    <li><strong>Sidebar</strong> - an instrument panel: Library scope, Filters with live counts and per-kind capacity bars (share of indexed bytes), a lazy-expanding directory tree, and a pinned Engine readout (embedder, vision, whisper, compute budget).</li>
+    <li><strong>Toolbar</strong> - new folder, rescan, kind chips, Large (&gt;100 MB) / Recent (30 days) toggles, sort key + direction.</li>
+    <li><strong>Table</strong> - virtualized, uppercase mono column headers, two-tone filenames (dim extension), status dot per row, mono size / modified / length columns; multi-select with ⌘/⇧/⌘A; double-click opens; the right-click menu is grouped (navigation / clipboard / file ops / destructive) with hairline separators.</li>
+    <li><strong>Search screen</strong> - a query header with the echoed query, spoken transcript when the mic was used, and result telemetry (hits · milliseconds · vectors scanned); dense numbered result rows with thumbnails or kind tiles, lane chips showing which retrieval lanes voted, score readouts, and full keyboard navigation (↑↓ select, ↵ open, Esc back).</li>
+    <li><strong>Floating inspector</strong> - a spec sheet that appears only while something is selected: identity header, action row, metadata key-values with hairlines, index state with its status dot, and the indexed-content preview. Deliberately a floating window: an appearing side panel re-flows the table and used to close open context menus.</li>
+    <li><strong>Footer</strong> - index health (files, vectors, cores) on the left; progress cluster with percentage, throughput, and ETA on the right.</li>
   </ul>
 </section>
 
@@ -521,7 +522,7 @@
     <tr><td><span class="kbd">⌘</span><span class="kbd">F</span></td><td>Focus the search box</td></tr>
     <tr><td><span class="kbd">Enter</span> (in search box)</td><td>Run the multimodal search</td></tr>
     <tr><td><span class="kbd">Esc</span></td><td>Leave search and return to the pre-search folder; cancel inline editors and dialogs</td></tr>
-    <tr><td><span class="kbd">↑</span> <span class="kbd">↓</span></td><td>Move the row selection</td></tr>
+    <tr><td><span class="kbd">↑</span> <span class="kbd">↓</span></td><td>Move the row selection (browse table or search results)</td></tr>
     <tr><td><span class="kbd">Enter</span> (on a row)</td><td>Open the selection (or enter a folder)</td></tr>
     <tr><td><span class="kbd">⌘</span><span class="kbd">A</span></td><td>Select all visible rows</td></tr>
     <tr><td><span class="kbd">⌘</span><span class="kbd">⌫</span></td><td>Move selection to trash</td></tr>
@@ -533,13 +534,13 @@
 <!-- ======================= CONFIG ======================= -->
 <section id="config">
   <h2><span class="num">13</span>Configuration</h2>
-  <p><code>~/.ipic/config.toml</code> — editable by hand or via <code>ipic-cli config</code> / the settings window. Root changes take effect on the next rescan without a restart.</p>
+  <p><code>~/.ipic/config.toml</code> - editable by hand or via <code>ipic-cli config</code> / the settings window. Root changes take effect on the next rescan without a restart.</p>
 <pre><code><span class="n">roots</span>            = [<span class="s">"/Users/you/Downloads"</span>]   <span class="c"># indexed scopes</span>
 <span class="n">skip_dir_names</span>   = [<span class="s">".Trash"</span>, <span class="s">"Library"</span>, <span class="s">"node_modules"</span>, …]
 <span class="n">whisper_model</span>    = <span class="s">"small.en-q5_1"</span>   <span class="c"># tiny/base/small × .en/multilingual, q5_1</span>
 <span class="n">whisper_workers</span>  = <span class="k">3</span>                    <span class="c"># concurrent decode states (CPU path)</span>
 <span class="n">whisper_use_gpu</span>  = <span class="k">false</span>                <span class="c"># Metal: fastest, serializes on one state</span>
-<span class="n">embedder</span>         = <span class="s">"neural"</span>             <span class="c"># or "hashing" — offline lexical fallback</span>
+<span class="n">embedder</span>         = <span class="s">"neural"</span>             <span class="c"># or "hashing" - offline lexical fallback</span>
 <span class="n">embed_batch</span>      = <span class="k">64</span>                   <span class="c"># chunks per ONNX batch</span>
 <span class="n">max_text_mb</span>      = <span class="k">8</span>                    <span class="c"># per-file extraction cap</span></code></pre>
 </section>
@@ -559,12 +560,12 @@
 
 <section id="testing">
   <h2><span class="num">15</span>Testing strategy</h2>
-  <p>59 tests across the workspace, including <strong>50 UI tests that drive the real application</strong> with synthetic mouse and keyboard input via egui_kittest — clicks are emitted with real-input semantics (press and release in separate frames, 1 ms simulated clock so double-click windows hold).</p>
+  <p>59 tests across the workspace, including <strong>50 UI tests that drive the real application</strong> with synthetic mouse and keyboard input via egui_kittest - clicks are emitted with real-input semantics (press and release in separate frames, 1 ms simulated clock so double-click windows hold).</p>
   <ul>
-    <li><strong>Unit</strong> — chunker bounds, resampler, FTS5 quoting, vector-store round-trip (append → top-k self-match → free/reuse), fingerprint self-similarity and separation.</li>
-    <li><strong>Integration</strong> — full scan → catalog → embed → hybrid-search flow on a synthetic corpus with the deterministic hashing embedder (hermetic: temp data directories, no model downloads).</li>
-    <li><strong>UI suites</strong> — search (Enter/Esc/filtering/no-results), navigation (breadcrumbs, history, tree, library structure), file operations (rename/duplicate/trash/new-folder against a real temp filesystem), toolbar (sorting, filters, settings, rescan), interaction (select, double-click open, right-click menu, Enter open).</li>
-    <li><strong>Seams</strong> — open/reveal actions are injectable, so tests assert routing without spawning Finder; engines launched against temp directories never touch your real config or index (verified byte-identical after full suite runs).</li>
+    <li><strong>Unit</strong> - chunker bounds, resampler, FTS5 quoting, vector-store round-trip (append → top-k self-match → free/reuse), fingerprint self-similarity and separation.</li>
+    <li><strong>Integration</strong> - full scan → catalog → embed → hybrid-search flow on a synthetic corpus with the deterministic hashing embedder (hermetic: temp data directories, no model downloads).</li>
+    <li><strong>UI suites</strong> - search (Enter/Esc/filtering/no-results), navigation (breadcrumbs, history, tree, library structure), file operations (rename/duplicate/trash/new-folder against a real temp filesystem), toolbar (sorting, filters, settings, rescan), interaction (select, double-click open, right-click menu, Enter open).</li>
+    <li><strong>Seams</strong> - open/reveal actions are injectable, so tests assert routing without spawning Finder; engines launched against temp directories never touch your real config or index (verified byte-identical after full suite runs).</li>
   </ul>
 </section>
 
@@ -572,9 +573,9 @@
   <h2><span class="num">16</span>Privacy model</h2>
   <div class="card">
     <ul>
-      <li>Inference runs in-process: ONNX Runtime for embeddings, whisper.cpp for speech — no server, no API keys, no sandboxed helper.</li>
+      <li>Inference runs in-process: ONNX Runtime for embeddings, whisper.cpp for speech - no server, no API keys, no sandboxed helper.</li>
       <li>The codebase contains exactly one network call: the first-run model fetch from the Hugging Face CDN. Grep for <code>ureq</code> to audit it.</li>
-      <li>Queries, transcripts, embeddings and fingerprints are written only under <code>~/.ipic/</code> — SQLite and flat files you can inspect, and <code>rm -rf ~/.ipic</code> erases all derived state.</li>
+      <li>Queries, transcripts, embeddings and fingerprints are written only under <code>~/.ipic/</code> - SQLite and flat files you can inspect, and <code>rm -rf ~/.ipic</code> erases all derived state.</li>
     </ul>
   </div>
 </section>
@@ -582,16 +583,16 @@
 <section id="limits">
   <h2><span class="num">17</span>Limits &amp; roadmap</h2>
   <ul>
-    <li><strong>Speech-centric audio.</strong> Non-speech sound (music, ambience) matches acoustically and by metadata, but has no semantic representation yet — a CLAP-style encoder is the natural extension, and the per-modality store design slots it in without pipeline changes.</li>
+    <li><strong>Speech-centric audio.</strong> Non-speech sound (music, ambience) matches acoustically and by metadata, but has no semantic representation yet - a CLAP-style encoder is the natural extension, and the per-modality store design slots it in without pipeline changes.</li>
     <li><strong>Image search is content-based but English-centric.</strong> CLIP ViT-B/32 ranks pixels against the query text in a shared 512-dim space; multilingual or OCR-free document understanding would need a larger tower.</li>
     <li><strong>Flat vector index.</strong> Exact integer scan is optimal to a few million vectors (~30 ms at 2 M × 384-dim on one core, faster across cores); HNSW becomes worthwhile beyond that.</li>
-    <li><strong>Rename/move propagation</strong> relies on the watcher's incremental rescan — instant in practice, eventually-consistent by design.</li>
+    <li><strong>Rename/move propagation</strong> relies on the watcher's incremental rescan - instant in practice, eventually-consistent by design.</li>
     <li><strong>Future:</strong> edge-AI targets (the core crates are dependency-light by design), mobile companions sharing the catalog format, per-modality model swaps via config.</li>
   </ul>
 </section>
 
 <footer>
-  ◆ ipic — Rust workspace · bge-small-en-v1.5 (ONNX) · whisper small.en q5_1 (beam-5) · SQLite WAL + FTS5 · mmap'd i8 vector stores · egui. Guide matches the current <code>main</code> branch; all latency and throughput figures are measured on Apple Silicon (M2, 12 cores).
+  ◆ ipic - Rust workspace · bge-small-en-v1.5 (ONNX) · whisper small.en q5_1 (beam-5) · SQLite WAL + FTS5 · mmap'd i8 vector stores · egui. Guide matches the current <code>main</code> branch; all latency and throughput figures are measured on Apple Silicon (M2, 12 cores).
 </footer>
 
 </main>

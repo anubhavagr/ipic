@@ -126,7 +126,12 @@ fn draw_rename_dialog(ui: &mut egui::Ui, app: &mut IpicApp) {
         .fixed_size([360.0, 0.0])
         .show(ui.ctx(), |ui| {
             ui.label("New name:");
-            let response = ui.add(egui::TextEdit::singleline(&mut dialog.edit_buffer).clip_text(true));
+            let response = ui.add(
+                egui::TextEdit::singleline(&mut dialog.edit_buffer)
+                    .clip_text(true)
+                    .font(egui::TextStyle::Monospace)
+                    .background_color(theme::SURFACE_SUNKEN),
+            );
             // Focus the field when the dialog opens; never steal focus back
             // after Enter/Escape surrender it.
             if !response.has_focus() && !response.lost_focus() {
@@ -138,8 +143,15 @@ fn draw_rename_dialog(ui: &mut egui::Ui, app: &mut IpicApp) {
             if ui.input(|input| input.key_pressed(egui::Key::Escape)) {
                 cancel = true;
             }
+            ui.add_space(4.0);
             ui.horizontal(|ui| {
-                if ui.button("Rename").clicked() {
+                if ui
+                    .add(egui::Button::new(
+                        egui::RichText::new("Rename").color(theme::ON_ACCENT).strong(),
+                    )
+                    .fill(theme::ACCENT_DEEP))
+                    .clicked()
+                {
                     apply = true;
                 }
                 if ui.button("Cancel").clicked() {
@@ -190,7 +202,8 @@ fn draw_settings_window(context: &Context, app: &mut IpicApp) {
  .fixed_size([430.0, 0.0])
         .collapsible(false)
         .show(context, |ui| {
-            ui.label(egui::RichText::new("Indexed roots").strong());
+            ui.label(egui::RichText::new("Indexed roots").strong().color(theme::TEXT_DIM).small());
+            ui.add_space(2.0);
             let mut roots = app.config.roots.clone();
             let mut roots_changed = false;
             for index in (0..roots.len()).rev() {
@@ -224,11 +237,12 @@ fn draw_settings_window(context: &Context, app: &mut IpicApp) {
                 app.config.roots = roots.clone();
                 app.engine.replace_roots(roots);
                 app.engine.persist_config(&app.config);
-                app.push_notice("roots updated — rescan starts now".into());
+                app.push_notice("roots updated, rescan starts now".into());
                 app.engine.spawn_scan();
             }
             ui.add_space(8.0);
-            ui.label(egui::RichText::new("Image embeddings").strong());
+            ui.label(theme::micro("Models"));
+            ui.add_space(2.0);
             ui.horizontal(|ui| {
                 let enabled = app.config.image_embedder != "none";
                 if ui
@@ -238,9 +252,9 @@ fn draw_settings_window(context: &Context, app: &mut IpicApp) {
                     app.config.image_embedder = if enabled { "none".into() } else { "clip-vit-b32".into() };
                     app.engine.persist_config(&app.config);
                     app.push_notice(if enabled {
-                        "vision off — applies to new indexing; rescan to re-embed"
+                        "vision off, applies to new indexing; rescan to re-embed"
                     } else {
-                        "vision on — downloads CLIP on first use, then indexes image content"
+                        "vision on, downloads CLIP on first use, then indexes image content"
                     }.into());
                 }
             });
@@ -267,7 +281,13 @@ fn draw_settings_window(context: &Context, app: &mut IpicApp) {
             });
             ui.add_space(10.0);
             ui.horizontal(|ui| {
-                if ui.button("Rescan now").clicked() {
+                if ui
+                    .add(egui::Button::new(
+                        egui::RichText::new("Rescan now").color(theme::ON_ACCENT).strong(),
+                    )
+                    .fill(theme::ACCENT_DEEP))
+                    .clicked()
+                {
                     app.engine.spawn_scan();
                     app.show_settings = false;
                 }

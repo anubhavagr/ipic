@@ -172,9 +172,17 @@ fn right_click_menu_opens_file() {
     enter_corpus_root(&mut harness, &world.corpus);
     let row_position = table_row_position(&harness, "beach-sunset.png");
     click_at(&mut harness, row_position, egui::PointerButton::Secondary);
+    // The right-click also selects the row, which opens the floating
+    // inspector (its own "Open" button registers earlier in the tree and may
+    // sit under the popup). The context menu opens at the pointer, so its
+    // entry is the "Open" nearest the right-clicked row.
     let menu_position = harness
         .query_all_by_label("Open")
-        .find(|node| node.rect().min.y > 30.0)
+        .filter(|node| node.rect().min.y > 30.0)
+        .min_by_key(|node| {
+            let center = node.rect().center();
+            ((center.x - row_position.x) as i32).abs() + ((center.y - row_position.y) as i32).abs()
+        })
         .expect("context menu with an Open entry must appear")
         .rect()
         .center();

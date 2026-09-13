@@ -24,7 +24,10 @@ fn capture_documentation_screenshots() {
         std::thread::sleep(Duration::from_millis(250));
     }
     let application = IpicApp::new(Arc::clone(&engine), config);
-    let options = SnapshotOptions::new().output_path("docs/img");
+    // `cargo test` runs with the crate directory as CWD, so a relative path
+    // would land in crates/ipic-app/docs/img. Anchor to the workspace root.
+    let output = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/img");
+    let options = SnapshotOptions::new().output_path(output);
     let mut harness = HarnessBuilder::default()
         .with_size([1280.0, 800.0])
         .with_options(options)

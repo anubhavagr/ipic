@@ -112,7 +112,7 @@ impl IpicApp {
                     self.push_notice(format!("embedder: {model_id} ({kind})"));
                 }
                 EngineEvent::VisionReady { model_id } => {
-                    self.push_notice(format!("vision: {model_id} — image content search active"))
+                    self.push_notice(format!("vision: {model_id}, image content search active"))
                 }
                 EngineEvent::VisionUnavailable { reason } => {
                     self.push_notice(format!("vision unavailable: {reason}"))
@@ -218,6 +218,7 @@ impl IpicApp {
                 self.results.hits = outcome.hits;
                 self.results.elapsed_millis = outcome.elapsed_millis;
                 self.results.interpreted_query = outcome.interpreted_query;
+                self.results.vector_count = outcome.vector_count;
                 self.results.selected_index = None;
                 self.searching = false;
                 context.request_repaint();
@@ -349,57 +350,104 @@ impl IpicApp {
 
 pub fn draw_top_bar(ui: &mut Ui, app: &mut IpicApp) {
     egui::Panel::top("top_bar")
-        .frame(egui::Frame::new().inner_margin(egui::Margin::symmetric(14, 8)))
+        .frame(
+            egui::Frame::new()
+                .fill(crate::theme::SURFACE_PANEL)
+                .inner_margin(egui::Margin::symmetric(14, 7)),
+        )
         .show(ui, |ui| {
             ui.horizontal_centered(|ui| {
-                ui.label(egui::RichText::new("◆ ipic").color(crate::theme::ACCENT).size(19.0).strong());
-                ui.add_space(10.0);
+                ui.label(egui::RichText::new("◆ ipic").color(crate::theme::ACCENT).size(18.0).strong());
+                ui.add_space(12.0);
                 use crate::theme::icons;
-                if ui
-                    .add_enabled(
-                        !app.back_history.is_empty(),
-                        egui::Button::new(crate::theme::icon(icons::BACK, 16.0)).min_size(egui::vec2(26.0, 24.0)),
-                    )
-                    .on_hover_text("Back (⌘[)")
-                    .clicked()
-                {
-                    app.navigate_back();
+                fn ghost(button: egui::Button<'_>) -> egui::Button<'_> {
+                    button.fill(egui::Color32::TRANSPARENT)
                 }
-                if ui
-                    .add_enabled(
-                        !app.forward_history.is_empty(),
-                        egui::Button::new(crate::theme::icon(icons::FORWARD, 16.0)).min_size(egui::vec2(26.0, 24.0)),
-                    )
-                    .on_hover_text("Forward (⌘])")
-                    .clicked()
-                {
-                    app.navigate_forward();
-                }
-                if ui
-                    .button(crate::theme::icon(icons::UP, 16.0))
-                    .on_hover_text("Enclosing folder (⌘↑)")
-                    .clicked()
-                {
-                    app.navigate_up();
-                }
-                ui.add_space(4.0);
+                // Segmented navigation group: back / forward / up in one
+                // hairline enclosure, instrument-panel style.
+                crate::theme::group_frame().show(ui, |ui| {
+                    ui.add_space(1.0);
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = 0.0;
+                        if ui
+                            .add_enabled(
+                                !app.back_history.is_empty(),
+                                ghost(egui::Button::new(crate::theme::icon(icons::BACK, 15.0)).min_size(egui::vec2(26.0, 22.0))),
+                            )
+                            .on_hover_text("Back (⌘[)")
+                            .clicked()
+                        {
+                            app.navigate_back();
+                        }
+                        if ui
+                            .add_enabled(
+                                !app.forward_history.is_empty(),
+                                ghost(egui::Button::new(crate::theme::icon(icons::FORWARD, 15.0)).min_size(egui::vec2(26.0, 22.0))),
+                            )
+                            .on_hover_text("Forward (⌘])")
+                            .clicked()
+                        {
+                            app.navigate_forward();
+                        }
+                        if ui
+                            .add(ghost(egui::Button::new(crate::theme::icon(icons::UP, 15.0)).min_size(egui::vec2(26.0, 22.0))))
+                            .on_hover_text("Enclosing folder (⌘↑)")
+                            .clicked()
+                        {
+                            app.navigate_up();
+                        }
+                    });
+                    ui.add_space(1.0);
+                });
+                ui.add_space(10.0);
                 draw_breadcrumb(ui, app);
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.button("⚙").on_hover_text("Settings").clicked() {
+                    if ui
+                        .add(ghost(egui::Button::new(crate::theme::icon(icons::SETTINGS, 16.0))))
+                        .on_hover_text("Settings")
+                        .clicked()
+                    {
                         app.show_settings = !app.show_settings;
                     }
                     if ui
-                        .button(if app.show_details { "◧" } else { "◨" })
+                        .add(ghost(egui::Button::new(crate::theme::icon(icons::INFO, 16.0))))
                         .on_hover_text("Toggle details panel")
                         .clicked()
                     {
                         app.show_details = !app.show_details;
                     }
                     ui.separator();
+                    draw_engine_status_chip(ui, app);
+                    ui.separator();
                     draw_search_box(ui, app);
                 });
             });
+            // Bottom hairline separating chrome from content.
+            let rect = ui.clip_rect();
+            ui.painter()
+                .hline(rect.left()..=rect.right(), rect.bottom() - 0.5, egui::Stroke::new(1.0, crate::theme::BORDER));
         });
+}
+
+/// Live engine-state readout pinned in the command bar: dot + mono word.
+/// Uppercase wording differs from the footer's "● ready" sentence on purpose
+/// (they are different registers: chip vs status line).
+fn draw_engine_status_chip(ui: &mut Ui, app: &mut IpicApp) {
+    let status = app.engine.status();
+    let (word, color) = if status.scanning {
+        ("SCANNING", crate::theme::ACCENT)
+    } else if status.pending > 0 {
+        ("INDEXING", crate::theme::WARNING)
+    } else {
+        ("READY", crate::theme::SUCCESS)
+    };
+    crate::theme::group_frame().show(ui, |ui| {
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 6.0;
+            crate::theme::status_dot(ui, color, 7.0);
+            ui.label(crate::theme::mono_primary(word).size(10.5).strong());
+        });
+    });
 }
 
 fn draw_search_box(ui: &mut Ui, app: &mut IpicApp) {
@@ -418,19 +466,23 @@ fn draw_search_box(ui: &mut Ui, app: &mut IpicApp) {
         .add(egui::Button::new(mic_label).fill(if recording {
             crate::theme::DANGER
         } else {
-            crate::theme::SURFACE_CARD
+            egui::Color32::TRANSPARENT
         }))
-        .on_hover_text("Speak a query — transcribed on-device")
+        .on_hover_text("Speak a query, transcribed on-device")
         .clicked()
     {
         app.toggle_recording();
     }
-    let width = (ui.available_width() - 130.0).clamp(220.0, 520.0);
+    let width = (ui.available_width() - 150.0).clamp(240.0, 560.0);
+    // Command well: sunken input, larger type, focus ring comes from the
+    // selection visuals (cyan). Sized taller than body text on purpose.
     let edit = egui::TextEdit::singleline(&mut app.search_edit)
-        .hint_text("Search everything — files, documents, audio, video, images…  (⌘F)")
+        .hint_text("Search files, documents, audio, video, images (⌘F)")
         .desired_width(width)
-        .clip_text(true);
-    let response = ui.add(edit);
+        .clip_text(true)
+        .background_color(crate::theme::SURFACE_SUNKEN)
+        .font(egui::TextStyle::Monospace);
+    let response = ui.add_sized(egui::vec2(width, 30.0), edit);
     app.search_box_has_focus = response.has_focus();
     if app.results.request_search_focus {
         response.request_focus();
@@ -449,7 +501,7 @@ fn draw_search_box(ui: &mut Ui, app: &mut IpicApp) {
     let enter_pressed = ui.input(|input| input.key_pressed(egui::Key::Enter))
         && (response.lost_focus() || response.has_focus());
     if ui
-        .button(crate::theme::icon(crate::theme::icons::SEARCH, 16.0))
+        .add(egui::Button::new(crate::theme::icon(crate::theme::icons::SEARCH, 16.0)).fill(egui::Color32::TRANSPARENT))
         .on_hover_text("Search (Enter)")
         .clicked()
         || enter_pressed
@@ -477,6 +529,8 @@ fn draw_breadcrumb(ui: &mut Ui, app: &mut IpicApp) {
             if ui.link("All files").clicked() {
                 app.navigate_to(None);
             }
+            // (segment, full path) pairs accumulated left to right.
+            let mut segments: Vec<(String, String)> = Vec::new();
             let mut accumulated = String::new();
             for segment in path_text.split('/') {
                 if segment.is_empty() {
@@ -484,15 +538,35 @@ fn draw_breadcrumb(ui: &mut Ui, app: &mut IpicApp) {
                 }
                 accumulated.push('/');
                 accumulated.push_str(segment);
-                ui.label(egui::RichText::new("›").color(crate::theme::TEXT_DIM));
-                let target = accumulated.clone();
+                segments.push((segment.to_string(), accumulated.clone()));
+            }
+            // Deep trails elide to first + … + last two so the breadcrumb
+            // never runs under the command cluster on the right.
+            let shown: Vec<(String, String)> = if segments.len() > 4 {
+                let last = segments.len() - 1;
+                vec![
+                    segments[0].clone(),
+                    ("…".into(), String::new()),
+                    segments[last - 1].clone(),
+                    segments[last].clone(),
+                ]
+            } else {
+                segments
+            };
+            for (segment, target) in shown {
+                ui.label(egui::RichText::new("/").color(crate::theme::BORDER_STRONG).monospace());
                 let is_current = target == path_text;
                 let label = if is_current {
-                    egui::RichText::new(segment).color(crate::theme::TEXT_PRIMARY).strong()
+                    egui::RichText::new(&segment).color(crate::theme::TEXT_PRIMARY).strong()
                 } else {
-                    egui::RichText::new(segment).color(crate::theme::TEXT_DIM)
+                    egui::RichText::new(&segment).color(crate::theme::TEXT_DIM)
                 };
-                if ui.add(egui::Button::new(label).fill(egui::Color32::TRANSPARENT)).clicked()
+                if target.is_empty() {
+                    // Ellipsis is a visual elision, not a navigation target.
+                    ui.label(label);
+                } else if ui
+                    .add(egui::Button::new(label).fill(egui::Color32::TRANSPARENT))
+                    .clicked()
                     && let Some(target_dir) = app.engine.dir_by_path(&target)
                 {
                     app.navigate_to(Some(target_dir));
@@ -505,7 +579,7 @@ fn draw_breadcrumb(ui: &mut Ui, app: &mut IpicApp) {
 /// Compact human duration for ETAs.
 pub fn format_eta(seconds: f64) -> String {
     if !seconds.is_finite() || seconds < 0.0 {
-        return "—".into();
+        return "-".into();
     }
     if seconds < 60.0 {
         format!("≈ {:.0}s", seconds)
@@ -516,19 +590,21 @@ pub fn format_eta(seconds: f64) -> String {
     }
 }
 
-/// Compact footer progress: label + fraction + mini bar.
+/// Compact footer progress: label + fraction + percentage + bar.
 fn draw_footer_progress(ui: &mut Ui, label: &str, fraction: f32, detail: &str) {
+    ui.label(crate::theme::micro(label));
     ui.label(
-        egui::RichText::new(format!("{label} {detail}"))
+        egui::RichText::new(format!("{detail} · {:>3.0}%", fraction.clamp(0.0, 1.0) * 100.0))
             .color(crate::theme::TEXT_DIM)
-            .small(),
+            .small()
+            .monospace(),
     );
-    let width = 110.0;
-    let (rect, _) = ui.allocate_exact_size(egui::vec2(width, 5.0), egui::Sense::hover());
+    let width = 130.0;
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(width, 6.0), egui::Sense::hover());
     let painter = ui.painter();
-    painter.rect_filled(rect, egui::CornerRadius::same(2), crate::theme::SURFACE_HOVER);
-    let filled = egui::Rect::from_min_size(rect.min, egui::vec2(width * fraction.clamp(0.0, 1.0), 5.0));
-    painter.rect_filled(filled, egui::CornerRadius::same(2), crate::theme::ACCENT);
+    painter.rect_filled(rect, egui::CornerRadius::same(3), crate::theme::SURFACE_HOVER);
+    let filled = egui::Rect::from_min_size(rect.min, egui::vec2(width * fraction.clamp(0.0, 1.0), 6.0));
+    painter.rect_filled(filled, egui::CornerRadius::same(3), crate::theme::ACCENT);
 }
 
 pub fn draw_status_bar(ui: &mut Ui, app: &mut IpicApp) {
@@ -552,21 +628,23 @@ pub fn draw_status_bar(ui: &mut Ui, app: &mut IpicApp) {
                     ui.label(egui::RichText::new("● ready").color(crate::theme::SUCCESS));
                 }
                 ui.separator();
-                ui.label(egui::RichText::new(format!("{} files", status.total_files)).color(crate::theme::TEXT_DIM));
-                ui.label(egui::RichText::new(format!("{} vectors", status.vector_count)).color(crate::theme::TEXT_DIM));
+                ui.label(egui::RichText::new(format!("{} files", status.total_files)).color(crate::theme::TEXT_DIM).monospace());
+                ui.label(egui::RichText::new(format!("{} vectors", status.vector_count)).color(crate::theme::TEXT_DIM).monospace());
                 if status.image_vector_count > 0 {
                     ui.label(
                         egui::RichText::new(format!("{} image vectors", status.image_vector_count))
-                            .color(crate::theme::TEXT_DIM),
+                            .color(crate::theme::TEXT_DIM)
+                            .monospace(),
                     );
                 }
-                ui.label(egui::RichText::new(format!("{}× cores", status.core_count)).color(crate::theme::TEXT_DIM));
+                ui.label(egui::RichText::new(format!("{}× cores", status.core_count)).color(crate::theme::TEXT_DIM).monospace());
                 if app.searching {
                     ui.label(egui::RichText::new("searching…").color(crate::theme::TEXT_DIM));
                 } else if !app.results.hits.is_empty() {
                     ui.label(
                         egui::RichText::new(format!("search: {:.0} ms", app.results.elapsed_millis))
-                            .color(crate::theme::TEXT_DIM),
+                            .color(crate::theme::TEXT_DIM)
+                            .monospace(),
                     );
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -606,6 +684,10 @@ pub fn draw_status_bar(ui: &mut Ui, app: &mut IpicApp) {
                     }
                 });
             });
+            // Top hairline separating content from chrome.
+            let rect = ui.clip_rect();
+            ui.painter()
+                .hline(rect.left()..=rect.right(), rect.top() + 0.5, egui::Stroke::new(1.0, crate::theme::BORDER));
         });
 }
 
