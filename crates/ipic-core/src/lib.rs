@@ -232,10 +232,12 @@ impl ComputeConfig {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            roots: vec![dirs::home_dir().unwrap_or_else(|| PathBuf::from("/")).join("Downloads")],
+            roots: vec![dirs::home_dir().unwrap_or_else(|| PathBuf::from("/"))],
             skip_dir_names: [
                 ".Trash", "Library", "Caches", "node_modules", ".git", ".cache", ".venv",
-                "__pycache__", "target", "dist", ".npm", ".cargo", ".rustup", ".docker",
+                "venv", "__pycache__", "target", "dist", ".npm", ".cargo", ".rustup",
+                ".docker", ".ollama", ".m2", ".gradle", ".terraform", ".next",
+                ".pnpm-store", ".turbo", ".wrap",
             ].iter().map(|s| s.to_string()).collect(),
             whisper_model: "small.en-q5_1".into(),
             whisper_workers: 4,

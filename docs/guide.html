@@ -144,7 +144,7 @@
       <!-- ============ LEFT column, boxes x 40..380 ============ -->
       <rect x="40" y="48" width="340" height="52" rx="9" fill="#ffffff" stroke="#e2e2e7"/>
       <text x="210" y="69" text-anchor="middle" font-size="12.5" font-weight="700" fill="#181b20">🗂 Filesystem roots</text>
-      <text x="210" y="86" text-anchor="middle" font-size="10.5" fill="#6c727c">~/Downloads + added roots · skip-list pruning</text>
+      <text x="210" y="86" text-anchor="middle" font-size="10.5" fill="#6c727c">home directory + added roots · skip-list pruning</text>
 
       <line x1="210" y1="100" x2="210" y2="118" stroke="#6c727c" stroke-width="1.5" marker-end="url(#wArr)"/>
 
@@ -369,7 +369,7 @@
 <span class="k">$</span> ./target/release/ipic-cli status                     <span class="c"># index statistics</span>
 <span class="k">$</span> ./target/release/ipic-cli list --kind video
 <span class="k">$</span> ./target/release/ipic-cli config --set-roots ~/Downloads ~/Movies</span></code></pre>
-  <p class="note">Default scope is <code>~/Downloads</code>. First run downloads bge-small-en-v1.5 (~130 MB) and whisper small.en q5 (~180 MB) into <code>~/.ipic/models/</code>.</p>
+  <p class="note">Default scope is the home directory, pruned by the skip list (Library, caches, dependency trees, build outputs); add or narrow roots any time via settings or <code>ipic-cli config --set-roots</code>. First run downloads bge-small-en-v1.5 (~130 MB) and whisper small.en q5 (~180 MB) into <code>~/.ipic/models/</code>.</p>
 </section>
 
 <!-- ======================= ARCHITECTURE ======================= -->
@@ -535,7 +535,7 @@
 <section id="config">
   <h2><span class="num">13</span>Configuration</h2>
   <p><code>~/.ipic/config.toml</code> - editable by hand or via <code>ipic-cli config</code> / the settings window. Root changes take effect on the next rescan without a restart.</p>
-<pre><code><span class="n">roots</span>            = [<span class="s">"/Users/you/Downloads"</span>]   <span class="c"># indexed scopes</span>
+<pre><code><span class="n">roots</span>            = [<span class="s">"/Users/you"</span>]              <span class="c"># indexed scopes</span>
 <span class="n">skip_dir_names</span>   = [<span class="s">".Trash"</span>, <span class="s">"Library"</span>, <span class="s">"node_modules"</span>, …]
 <span class="n">whisper_model</span>    = <span class="s">"small.en-q5_1"</span>   <span class="c"># tiny/base/small × .en/multilingual, q5_1</span>
 <span class="n">whisper_workers</span>  = <span class="k">3</span>                    <span class="c"># concurrent decode states (CPU path)</span>
