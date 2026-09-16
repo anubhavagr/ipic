@@ -177,6 +177,10 @@ pub struct Config {
     /// Thread budget per pipeline stage; 0 entries derive saturating defaults.
     #[serde(default)]
     pub compute: ComputeConfig,
+    /// Scope-revision marker: configs written before the whole-home default
+    /// (roots = ~/Downloads) carry 0 and migrate forward on load.
+    #[serde(default)]
+    pub roots_version: u32,
 }
 
 fn default_embedder() -> String {
@@ -248,6 +252,7 @@ impl Default for Config {
             max_text_mb: 8,
             max_image_mb: default_max_image_mb(),
             compute: ComputeConfig::default(),
+            roots_version: 1,
         }
     }
 }
@@ -288,7 +293,8 @@ impl Config {
         compact
     }
 
-    /// Loads config from disk, creating the default on first run.
+    /// Loads config from disk, creating the default on first run. Configs
+    /// still carrying a superseded default scope migrate forward on load.
     pub fn load_or_create() -> CoreResult<Self> {
         let path = Self::path();
         if !path.exists() {
@@ -296,8 +302,28 @@ impl Config {
             config.save()?;
             return Ok(config);
         }
-        let config: Config = toml::from_str(&std::fs::read_to_string(&path)?)?;
+        let mut config: Config = toml::from_str(&std::fs::read_to_string(&path)?)?;
+        if config.migrate_legacy_scope() {
+            config.save()?;
+        }
         Ok(config)
+    }
+
+    /// Upgrades configs frozen at the pre-v1 default (roots = ~/Downloads) to
+    /// the whole-home default. A user who deliberately scopes Downloads keeps
+    /// it: explicit edits carry `roots_version = 1` and never re-migrate.
+    /// Returns true when the config changed and should be persisted.
+    pub fn migrate_legacy_scope(&mut self) -> bool {
+        if self.roots_version >= 1 {
+            return false;
+        }
+        if let Some(home) = dirs::home_dir() {
+            if self.roots.len() == 1 && self.roots[0] == home.join("Downloads") {
+                self.roots = vec![home];
+            }
+        }
+        self.roots_version = 1;
+        true
     }
 
     pub fn save(&self) -> CoreResult<()> {
@@ -308,5 +334,41 @@ impl Config {
         std::fs::create_dir_all(directory)?;
         std::fs::write(Self::path_in(directory), toml::to_string_pretty(self)?)?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn legacy_downloads_scope_migrates_to_home() {
+        let home = dirs::home_dir().unwrap();
+        let mut config = Config {
+            roots: vec![home.join("Downloads")],
+            ..Config::default()
+        };
+        config.roots_version = 0; // simulate a config written before the default changed
+        assert!(config.migrate_legacy_scope());
+        assert_eq!(config.roots, vec![home.clone()]);
+        assert_eq!(config.roots_version, 1);
+        // Idempotent: a second load never re-migrates.
+        assert!(!config.migrate_legacy_scope());
+    }
+
+    #[test]
+    fn explicit_non_default_roots_survive_migration() {
+        let home = dirs::home_dir().unwrap();
+        let mut config = Config {
+            roots: vec![home.join("Downloads"), home.join("Movies")],
+            ..Config::default()
+        };
+        config.roots_version = 0;
+        assert!(config.migrate_legacy_scope());
+        assert_eq!(
+            config.roots,
+            vec![home.join("Downloads"), home.join("Movies")],
+            "only the exact legacy default upgrades; deliberate scopes stay"
+        );
     }
 }

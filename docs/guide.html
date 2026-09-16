@@ -369,7 +369,7 @@
 <span class="k">$</span> ./target/release/ipic-cli status                     <span class="c"># index statistics</span>
 <span class="k">$</span> ./target/release/ipic-cli list --kind video
 <span class="k">$</span> ./target/release/ipic-cli config --set-roots ~/Downloads ~/Movies</span></code></pre>
-  <p class="note">Default scope is the home directory, pruned by the skip list (Library, caches, dependency trees, build outputs); add or narrow roots any time via settings or <code>ipic-cli config --set-roots</code>. First run downloads bge-small-en-v1.5 (~130 MB) and whisper small.en q5 (~180 MB) into <code>~/.ipic/models/</code>.</p>
+  <p class="note">Default scope is the home directory, pruned by the skip list (Library, caches, dependency trees, build outputs); add or narrow roots any time via settings or <code>ipic-cli config --set-roots</code>. Configs written before the switch (roots = ~/Downloads, the old default) migrate to the whole-home scope on first launch — deliberately edited scopes are left alone. First run downloads bge-small-en-v1.5 (~130 MB) and whisper small.en q5 (~180 MB) into <code>~/.ipic/models/</code>.</p>
 </section>
 
 <!-- ======================= ARCHITECTURE ======================= -->
