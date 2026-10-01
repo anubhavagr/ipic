@@ -2850,7 +2850,7 @@ dependencies = [
 
 [[package]]
 name = "ipic-app"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "cpal",
@@ -2866,7 +2866,7 @@ dependencies = [
 
 [[package]]
 name = "ipic-cli"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -2877,7 +2877,7 @@ dependencies = [
 
 [[package]]
 name = "ipic-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "crossbeam-channel",
@@ -2892,7 +2892,7 @@ dependencies = [
 
 [[package]]
 name = "ipic-rag"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "crossbeam-channel",
