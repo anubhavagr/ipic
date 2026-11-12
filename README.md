@@ -230,3 +230,9 @@ IPIC_VISION_TEST=1 cargo test -p ipic-rag --test integration vision_content
 IPIC_SCREENSHOTS=1 UPDATE_SNAPSHOTS=1 cargo test -p ipic-app --test screenshots
                           # regenerate the screenshots above from the live index
 ```
+
+## A note on commit identities
+
+Commits in this repository appear under two GitHub accounts — both are me:
+`anubhavagr`, and `2024ad05326`, my BITS Pilani student account (M.Tech AI/ML,
+class of 2027).
